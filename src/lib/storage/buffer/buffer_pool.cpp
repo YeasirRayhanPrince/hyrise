@@ -73,19 +73,35 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
 
   if (enable_batching) {
     // Batch eviction path: evict multiple pages at once
+    size_t consecutive_failures = 0;
+    const size_t MAX_CONSECUTIVE_FAILURES = 3;
+    
     while ((current_bytes + bytes_required - freed_bytes) > max_bytes) {
       const auto bytes_needed = (current_bytes + bytes_required - freed_bytes) - max_bytes;
       const auto min_page_bytes = bytes_for_size_type(MIN_PAGE_SIZE_TYPE);
-      const auto pages_to_evict = std::max<size_t>(1, (bytes_needed + min_page_bytes - 1) / min_page_bytes);
+      
+      // Calculate pages needed based on bytes, but enforce minimum batch size
+      const auto pages_from_bytes = (bytes_needed + min_page_bytes - 1) / min_page_bytes;
+      const auto pages_to_evict = std::max(MIN_BATCH_SIZE, pages_from_bytes);
 
       const auto evicted = evict_batch(pages_to_evict, &freed_bytes);
-      std::cout << "[BufferPool] Batch eviction completed: evicted=" << evicted 
-                << ", freed_bytes=" << freed_bytes << std::endl;
+      // std::cout << "[BufferPool] Batch eviction: requested=" << pages_to_evict
+      //           << ", evicted=" << evicted << ", freed_bytes=" << freed_bytes << std::endl;
+      
       if (evicted == 0) {
-        free_bytes(bytes_required);
-        return false;
+        consecutive_failures++;
+        if (consecutive_failures >= MAX_CONSECUTIVE_FAILURES) {
+          // std::cout << "[BufferPool] Failed to evict after " << MAX_CONSECUTIVE_FAILURES 
+          //           << " attempts, allocation failed" << std::endl;
+          free_bytes(bytes_required);
+          return false;
+        }
+        // Give queue time to accumulate more items
+        std::this_thread::yield();
+        continue;
       }
-
+      
+      consecutive_failures = 0;  // Reset on success
       current_bytes = used_bytes.load();
     }
   } else {
@@ -193,12 +209,24 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
   
   auto item = EvictionItem{};
   size_t pages_collected = 0;
+  size_t queue_items_scanned = 0;
+  
+  // Calculate maximum queue items to scan (lookahead depth)
+  // In hot workloads, most queue entries are stale (already re-pinned),
+  // so we need to scan deeper to find truly evictable pages
+  const size_t max_queue_scans = num_pages_to_evict * MAX_QUEUE_SCAN_MULTIPLIER;
 
   // Phase 1: Collect and lock pages
-  while (pages_collected < num_pages_to_evict) {
+  // Continue scanning until we either:
+  //   - Collect num_pages_to_evict evictable pages, OR
+  //   - Scan max_queue_scans items, OR
+  //   - Queue is empty
+  while (pages_collected < num_pages_to_evict && queue_items_scanned < max_queue_scans) {
     if (!eviction_queue->try_pop(item)) {
       break;  // No more items in queue
     }
+    
+    queue_items_scanned++;
 
     auto region = volatile_regions[static_cast<uint64_t>(item.page_id.size_type())];
     auto frame = region->get_frame(item.page_id);
@@ -234,13 +262,16 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
   }
 
   if (locked_pages.empty()) {
-    std::cout << "[BufferPool::evict_batch] No pages locked for eviction after collecting " 
-              << pages_collected << " pages" << std::endl;
+    std::cout << "[BufferPool::evict_batch] No pages locked for eviction after scanning " 
+              << queue_items_scanned << " queue items (requested=" << num_pages_to_evict 
+              << ", max_scans=" << max_queue_scans << ")" << std::endl;
     return 0;  // No pages to evict
   }
 
-  std::cout << "[BufferPool::evict_batch] Phase 2: Locked " << locked_pages.size() 
-            << " pages, processing batch eviction by size type" << std::endl;
+  // std::cout << "[BufferPool::evict_batch] Phase 2: Locked " << locked_pages.size() 
+  //          << " pages after scanning " << queue_items_scanned << " queue items" 
+  //          << " (requested=" << num_pages_to_evict << ", efficiency=" 
+  //          << (100.0 * pages_collected / std::max(queue_items_scanned, size_t(1))) << "%)" << std::endl;
 
   // Phase 2: Batch evict by size type
   size_t evicted_count = 0;
@@ -273,11 +304,11 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
       }
     } else {
       // Batch migrate to NUMA
-      std::cout << "[BufferPool::evict_batch] Attempting batch NUMA migration for " 
-                << items.size() << " pages of size_type=" << static_cast<int>(size_type) << std::endl;
+      // std::cout << "[BufferPool::evict_batch] Attempting batch NUMA migration for " 
+      //          << items.size() << " pages of size_type=" << static_cast<int>(size_type) << std::endl;
       if (!target_buffer_pool->ensure_free_pages(size_type)) {
         // Fallback to individual eviction if batch allocation fails
-        std::cout << "[BufferPool::evict_batch] Target pool cannot allocate, fallback to queue" << std::endl;
+        // std::cout << "[BufferPool::evict_batch] Target pool cannot allocate, fallback to queue" << std::endl;
         for (const auto& item : items) {
           auto frame = region->get_frame(item.page_id);
           frame->unlock_exclusive();

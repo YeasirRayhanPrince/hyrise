@@ -90,9 +90,9 @@ void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& pa
   const auto os_pages_per_hyrise_page = page_size_bytes / OS_PAGE_SIZE;
   const auto total_os_pages = page_ids.size() * os_pages_per_hyrise_page;
 
-  std::cout << "[VolatileRegion::move_pages_to_numa_node_batch] Moving " << page_ids.size() 
-            << " Hyrise pages (" << total_os_pages << " OS pages) to NUMA node " 
-            << target_memory_node << std::endl;
+  // std::cout << "[VolatileRegion::move_pages_to_numa_node_batch] Moving " << page_ids.size() 
+  //          << " Hyrise pages (" << total_os_pages << " OS pages) to NUMA node " 
+  //          << target_memory_node << std::endl;
 
   // Prepare arrays for move_pages syscall
   std::vector<void*> pages_to_move(total_os_pages);
@@ -118,8 +118,8 @@ void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& pa
     Fail("Batch move_pages failed: " + strerror(error));
   }
 
-  std::cout << "[VolatileRegion::move_pages_to_numa_node_batch] Successfully migrated " 
-            << page_ids.size() << " pages to node " << target_memory_node << std::endl;
+  // std::cout << "[VolatileRegion::move_pages_to_numa_node_batch] Successfully migrated " 
+  //          << page_ids.size() << " pages to node " << target_memory_node << std::endl;
 
   // Update frame metadata for all migrated pages
   for (const auto& page_id : page_ids) {

@@ -110,9 +110,22 @@ struct EvictionItem {
 using EvictionQueue = tbb::concurrent_queue<EvictionItem>;
 
 // Enable or or disable mprotect calls for debugging purposes
-constexpr bool ENABLE_MPROTECT = true;
+constexpr bool ENABLE_MPROTECT = false;
 
 constexpr size_t MAX_EVICTION_QUEUE_PURGES = 1024;
+
+// Minimum number of pages to evict in a batch operation.
+// Even if we only need 1 page worth of bytes, we evict this many to:
+// 1. Amortize syscall overhead (move_pages, mprotect)
+// 2. Keep buffer pool from filling up immediately again
+// 3. Reduce eviction frequency
+constexpr size_t MIN_BATCH_SIZE = 64;
+
+// Maximum queue items to scan when collecting pages for batch eviction.
+// This allows deeper lookahead to find evictable pages in a hot workload.
+// Formula: max_scans = num_pages_requested * MAX_QUEUE_SCAN_MULTIPLIER
+// Example: requesting 64 pages with multiplier 8 = scan up to 512 queue items
+constexpr size_t MAX_QUEUE_SCAN_MULTIPLIER = 8;
 
 constexpr size_t DEFAULT_RESERVED_VIRTUAL_MEMORY = 1UL << 38;  // 256 GiB
 
