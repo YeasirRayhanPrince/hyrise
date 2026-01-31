@@ -18,6 +18,9 @@ struct BufferPool {
              std::shared_ptr<BufferPool> target_buffer_pool, const NodeID numa_node, std::shared_ptr<BufferPoolMetrics> metrics);
 
   void evict(EvictionItem& item, Frame* frame);
+  
+  // Batch eviction: evict multiple pages at once for better performance
+  size_t evict_batch(size_t num_pages_to_evict);
 
   uint64_t reserve_bytes(const uint64_t bytes);
 

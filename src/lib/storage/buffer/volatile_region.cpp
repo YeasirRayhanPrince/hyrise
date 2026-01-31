@@ -76,6 +76,58 @@ void VolatileRegion::mbind_to_numa_node(PageID page_id, const NodeID target_memo
   _frames[page_id.index].set_node_id(target_memory_node);
 }
 
+void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& page_ids, 
+                                                     const NodeID target_memory_node) {
+#if HYRISE_NUMA_SUPPORT
+  if (page_ids.empty()) {
+    return;
+  }
+
+  DebugAssert(target_memory_node != INVALID_NODE_ID, "Numa node has not been set.");
+
+  // Calculate total number of OS pages to move
+  const auto page_size_bytes = bytes_for_size_type(_size_type);
+  const auto os_pages_per_hyrise_page = page_size_bytes / OS_PAGE_SIZE;
+  const auto total_os_pages = page_ids.size() * os_pages_per_hyrise_page;
+
+  // Prepare arrays for move_pages syscall
+  std::vector<void*> pages_to_move(total_os_pages);
+  std::vector<int> nodes(total_os_pages);
+  std::vector<int> status(total_os_pages);
+
+  // Fill arrays with all OS pages from all Hyrise pages
+  size_t os_page_idx = 0;
+  for (const auto& page_id : page_ids) {
+    DebugAssert(page_id.size_type() == _size_type, "Page does not belong to this region.");
+    auto page_start = get_page(page_id);
+    
+    for (size_t i = 0; i < os_pages_per_hyrise_page; ++i) {
+      pages_to_move[os_page_idx] = page_start + i * OS_PAGE_SIZE;
+      nodes[os_page_idx] = target_memory_node;
+      os_page_idx++;
+    }
+  }
+
+  // Perform batch migration
+  if (move_pages(0, total_os_pages, pages_to_move.data(), nodes.data(), status.data(), MPOL_MF_MOVE) < 0) {
+    const auto error = errno;
+    Fail("Batch move_pages failed: " + strerror(error));
+  }
+
+  // Update frame metadata for all migrated pages
+  for (const auto& page_id : page_ids) {
+    _frames[page_id.index].set_node_id(target_memory_node);
+  }
+
+  _metrics->num_numa_tonode_memory_calls.fetch_add(1, std::memory_order_relaxed);
+#else
+  // Fallback for non-NUMA builds: just update metadata
+  for (const auto& page_id : page_ids) {
+    _frames[page_id.index].set_node_id(target_memory_node);
+  }
+#endif
+}
+
 void VolatileRegion::free(PageID page_id) {
   DebugAssert(page_id.size_type() == _size_type, "Page does not belong to this region.");
 

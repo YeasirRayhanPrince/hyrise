@@ -2,6 +2,7 @@
 #include "metrics.hpp"
 #include "storage/buffer/ssd_region.hpp"
 #include "volatile_region.hpp"
+#include <unordered_map>
 
 namespace hyrise {
 //TODO: properly check if disabled or not
@@ -163,6 +164,120 @@ void BufferPool::evict(EvictionItem& item, Frame* frame) {
     }
   }
   Fail("Could not evict page after trying for " + std::to_string(MAX_REPEAT_COUNT) + " times");
+}
+
+size_t BufferPool::evict_batch(size_t num_pages_to_evict) {
+  // Collect pages to evict in batches by size type and destination
+  std::unordered_map<PageSizeType, std::vector<EvictionItem>> pages_by_size;
+  std::vector<std::pair<EvictionItem, Frame*>> locked_pages;
+  
+  auto item = EvictionItem{};
+  size_t pages_collected = 0;
+
+  // Phase 1: Collect and lock pages
+  while (pages_collected < num_pages_to_evict) {
+    if (!eviction_queue->try_pop(item)) {
+      break;  // No more items in queue
+    }
+
+    auto region = volatile_regions[static_cast<uint64_t>(item.page_id.size_type())];
+    auto frame = region->get_frame(item.page_id);
+    auto current_state_and_version = frame->state_and_version();
+
+    // Skip if page is not on this node
+    if (frame->node_id() != node_id) {
+      increment_counter(metrics->num_eviction_queue_items_purged);
+      continue;
+    }
+
+    // Skip if cannot evict
+    if (!item.can_evict(current_state_and_version)) {
+      if (item.can_mark(current_state_and_version)) {
+        if (frame->try_mark(current_state_and_version)) {
+          add_to_eviction_queue(item.page_id, frame);
+        }
+      }
+      increment_counter(metrics->num_eviction_queue_items_purged);
+      continue;
+    }
+
+    // Try locking the frame exclusively
+    if (!frame->try_lock_exclusive(current_state_and_version)) {
+      increment_counter(metrics->num_eviction_queue_items_purged);
+      continue;
+    }
+
+    // Successfully locked - add to batch
+    locked_pages.emplace_back(item, frame);
+    pages_by_size[item.page_id.size_type()].push_back(item);
+    pages_collected++;
+  }
+
+  if (locked_pages.empty()) {
+    return 0;  // No pages to evict
+  }
+
+  // Phase 2: Batch evict by size type
+  size_t evicted_count = 0;
+  const auto write_to_ssd = 
+      !target_buffer_pool || !target_buffer_pool->enabled || migration_policy.bypass_numa_during_write();
+
+  for (auto& [size_type, items] : pages_by_size) {
+    auto region = volatile_regions[static_cast<uint64_t>(size_type)];
+    
+    if (write_to_ssd) {
+      // Evict to SSD (one by one for dirty pages)
+      for (const auto& item : items) {
+        auto frame = region->get_frame(item.page_id);
+        
+        if (frame->is_dirty()) {
+          auto data = region->get_page(item.page_id);
+          ssd_region->write_page(item.page_id, data);
+          region->protect_page(item.page_id);
+          frame->reset_dirty();
+        }
+        region->free(item.page_id);
+        frame->unlock_exclusive_and_set_evicted();
+        
+        increment_counter(metrics->num_evictions);
+        increment_counter(metrics->total_bytes_copied_to_ssd, bytes_for_size_type(size_type));
+        evicted_count++;
+      }
+    } else {
+      // Batch migrate to NUMA
+      if (!target_buffer_pool->ensure_free_pages(size_type)) {
+        // Fallback to individual eviction if batch allocation fails
+        for (const auto& item : items) {
+          auto frame = region->get_frame(item.page_id);
+          frame->unlock_exclusive();
+          add_to_eviction_queue(item.page_id, frame);
+        }
+        continue;
+      }
+
+      // Collect page IDs for batch migration
+      std::vector<PageID> page_ids_to_migrate;
+      page_ids_to_migrate.reserve(items.size());
+      for (const auto& item : items) {
+        page_ids_to_migrate.push_back(item.page_id);
+      }
+
+      // Perform batch migration using move_pages
+      region->move_pages_to_numa_node_batch(page_ids_to_migrate, target_buffer_pool->node_id);
+
+      // Unlock all frames and add to target pool's eviction queue
+      for (const auto& item : items) {
+        auto frame = region->get_frame(item.page_id);
+        frame->unlock_exclusive();
+        target_buffer_pool->add_to_eviction_queue(item.page_id, frame);
+        
+        increment_counter(metrics->num_evictions);
+        evicted_count++;
+      }
+    }
+  }
+
+  return evicted_count;
 }
 
 size_t BufferPool::memory_consumption() const {

@@ -96,8 +96,14 @@ class BufferManager : public boost::container::pmr::memory_resource, public Nonc
   Frame::StateVersionType _state(const PageID page_id);
   std::byte* _get_page_ptr(const PageID page_id);
 
+  // Testing methods
+  std::shared_ptr<BufferPool> get_primary_buffer_pool() { return _primary_buffer_pool; }
+  std::shared_ptr<BufferPool> get_secondary_buffer_pool() { return _secondary_buffer_pool; }
+  std::shared_ptr<VolatileRegion> get_volatile_region(size_t index) { return _volatile_regions[index]; }
+
  protected:
   friend class Hyrise;
+  friend class BatchEvictionTest;
 
   std::shared_ptr<VolatileRegion> get_region(const PageID page_id);
 
