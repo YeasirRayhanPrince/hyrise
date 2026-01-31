@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <optional>
 
 #include "base_test.hpp"
@@ -48,7 +49,8 @@ class ExpressionEvaluatorToPosListTest : public BaseTest {
       expected_pos_list[chunk_offset] = RowID{chunk_id, matching_chunk_offsets[chunk_offset]};
     }
 
-    return actual_pos_list == expected_pos_list;
+    return std::equal(actual_pos_list.cbegin(), actual_pos_list.cend(), expected_pos_list.cbegin(),
+              expected_pos_list.cend());
   }
 
   std::shared_ptr<Table> table_a, table_b;

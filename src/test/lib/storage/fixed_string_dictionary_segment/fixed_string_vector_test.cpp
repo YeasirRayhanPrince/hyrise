@@ -20,14 +20,14 @@ TEST_F(FixedStringVectorTest, IteratorConstructor) {
   std::vector<pmr_string> v1 = {"abc", "def", "ghi"};
   auto v2 = FixedStringVector{v1.begin(), v1.end(), 3};
 
-  EXPECT_EQ(v2[2u], "ghi");
+  EXPECT_EQ(v2[2u].string_view(), "ghi");
   EXPECT_EQ(v2.size(), 3u);
 }
 
 TEST_F(FixedStringVectorTest, SubscriptOperator) {
-  EXPECT_EQ((*fixed_string_vector)[0u], "foo");
-  EXPECT_EQ((*fixed_string_vector)[1u], "barbaz");
-  EXPECT_EQ((*fixed_string_vector)[2u], "str3");
+  EXPECT_EQ((*fixed_string_vector)[0u].string_view(), "foo");
+  EXPECT_EQ((*fixed_string_vector)[1u].string_view(), "barbaz");
+  EXPECT_EQ((*fixed_string_vector)[2u].string_view(), "str3");
 }
 
 TEST_F(FixedStringVectorTest, AtOperator) {
@@ -53,7 +53,7 @@ TEST_F(FixedStringVectorTest, Iterator) {
     *it = fixed_string;
   }
 
-  EXPECT_EQ((*fixed_string_vector)[0u], "abcde");
+  EXPECT_EQ((*fixed_string_vector)[0u].string_view(), "abcde");
 }
 
 TEST_F(FixedStringVectorTest, RangeIterator) {
@@ -62,7 +62,8 @@ TEST_F(FixedStringVectorTest, RangeIterator) {
 
   auto counter = size_t{0};
   for (auto it = fs_vector.begin(); it != fs_vector.end(); ++counter, ++it) {
-    EXPECT_EQ(*it, v[counter]);
+    const auto expected_view = std::string_view{v[counter].data(), v[counter].size()};
+    EXPECT_EQ(it->string_view(), expected_view);
   }
 }
 
@@ -104,7 +105,7 @@ TEST_F(FixedStringVectorTest, Erase) {
   fixed_string_vector->erase(++it, fixed_string_vector->end());
 
   EXPECT_EQ(fixed_string_vector->size(), 1u);
-  EXPECT_EQ((*fixed_string_vector)[0u], "foo");
+  EXPECT_EQ((*fixed_string_vector)[0u].string_view(), "foo");
 }
 
 TEST_F(FixedStringVectorTest, Shrink) {
@@ -128,7 +129,7 @@ TEST_F(FixedStringVectorTest, ConstIteratorConstructor) {
   std::vector<pmr_string> v1 = {"abc", "def", "ghi"};
   auto v2 = FixedStringVector{v1.cbegin(), v1.cend(), 3};
 
-  EXPECT_EQ(v2[0u], "abc");
+  EXPECT_EQ(v2[0u].string_view(), "abc");
   EXPECT_EQ(v2.size(), 3u);
 
   std::vector<pmr_string> v3 = {};
@@ -153,8 +154,8 @@ TEST_F(FixedStringVectorTest, Sort) {
 
   std::sort(fixed_string_vector1.begin(), fixed_string_vector1.end());
 
-  EXPECT_EQ(fixed_string_vector1[0u], "Alexander");
-  EXPECT_EQ(fixed_string_vector1[4u], "Mark");
+  EXPECT_EQ(fixed_string_vector1[0u].string_view(), "Alexander");
+  EXPECT_EQ(fixed_string_vector1[4u].string_view(), "Mark");
 }
 
 // FixedStringsVectors of empty strings have a special handling which needs to be tested.
@@ -162,13 +163,13 @@ TEST_F(FixedStringVectorTest, StringLengthZero) {
   std::vector<pmr_string> strings = {"", ""};
   auto fixed_string_vector1 = FixedStringVector(strings.begin(), strings.end(), 0u);
   EXPECT_EQ(fixed_string_vector1.size(), 2u);
-  EXPECT_EQ(fixed_string_vector1[0u], "");
+  EXPECT_EQ(fixed_string_vector1[0u].string_view(), "");
 
   fixed_string_vector1.push_back("");
   EXPECT_EQ(fixed_string_vector1.size(), 3u);
-  EXPECT_EQ(fixed_string_vector1[0u], "");
-  EXPECT_EQ(fixed_string_vector1[1u], "");
-  EXPECT_EQ(fixed_string_vector1[2u], "");
+  EXPECT_EQ(fixed_string_vector1[0u].string_view(), "");
+  EXPECT_EQ(fixed_string_vector1[1u].string_view(), "");
+  EXPECT_EQ(fixed_string_vector1[2u].string_view(), "");
 
   EXPECT_EQ(fixed_string_vector1.get_string_at(0u), "");
   EXPECT_EQ(fixed_string_vector1.get_string_at(1u), "");
@@ -176,9 +177,11 @@ TEST_F(FixedStringVectorTest, StringLengthZero) {
 }
 
 TEST_F(FixedStringVectorTest, CompareStdStringToFixedString) {
-  EXPECT_EQ(fixed_string_vector->at(0u), "foo");
-  EXPECT_EQ("foo", fixed_string_vector->at(0u));
-  EXPECT_EQ(fixed_string_vector->at(1u), pmr_string("barbaz"));
+  EXPECT_EQ(fixed_string_vector->at(0u).string_view(), "foo");
+  EXPECT_EQ(std::string_view{"foo"}, fixed_string_vector->at(0u).string_view());
+  const auto expected_barbaz = pmr_string{"barbaz"};
+  const auto expected_barbaz_view = std::string_view{expected_barbaz.data(), expected_barbaz.size()};
+  EXPECT_EQ(fixed_string_vector->at(1u).string_view(), expected_barbaz_view);
 }
 
 TEST_F(FixedStringVectorTest, ThrowOnOversizedStrings) {

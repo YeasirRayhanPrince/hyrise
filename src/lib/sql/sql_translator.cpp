@@ -257,23 +257,24 @@ std::shared_ptr<AbstractExpression> inverse_predicate(const AbstractExpression& 
   Fail("Invalid enum value.");
 }
 
-FrameBound translate_frame_bound(const hsql::FrameBound& hsql_frame_bound) {
-  auto bound_type = FrameBoundType::CurrentRow;
-  switch (hsql_frame_bound.type) {
-    case hsql::FrameBoundType::kCurrentRow:
-      break;
-    case hsql::FrameBoundType::kPreceding:
-      bound_type = FrameBoundType::Preceding;
-      break;
-    case hsql::FrameBoundType::kFollowing:
-      bound_type = FrameBoundType::Following;
-  }
-
-  const auto offset = hsql_frame_bound.offset;
-  Assert(offset >= 0, "Expected non-negative offset. Bug in sqlparser?");
-
-  return FrameBound{static_cast<uint64_t>(offset), bound_type, hsql_frame_bound.unbounded};
-}
+// TODO: Window function support requires sql-parser updates
+// FrameBound translate_frame_bound(const hsql::FrameBound& hsql_frame_bound) {
+//   auto bound_type = FrameBoundType::CurrentRow;
+//   switch (hsql_frame_bound.type) {
+//     case hsql::FrameBoundType::kCurrentRow:
+//       break;
+//     case hsql::FrameBoundType::kPreceding:
+//       bound_type = FrameBoundType::Preceding;
+//       break;
+//     case hsql::FrameBoundType::kFollowing:
+//       bound_type = FrameBoundType::Following;
+//   }
+//
+//   const auto offset = hsql_frame_bound.offset;
+//   Assert(offset >= 0, "Expected non-negative offset. Bug in sqlparser?");
+//
+//   return FrameBound{static_cast<uint64_t>(offset), bound_type, hsql_frame_bound.unbounded};
+// }
 
 }  // namespace
 
@@ -1877,7 +1878,10 @@ std::shared_ptr<AbstractExpression> SQLTranslator::_translate_hsql_expr(
 
     case hsql::kExprFunctionRef: {
       // Translate window definition.
+      // TODO: Window function support requires sql-parser updates
+      // Temporarily disabled to allow compilation on this branch
       auto window_description = std::shared_ptr<WindowExpression>();
+      /*
       if (expr.windowDescription) {
         AssertInput(allow_window_functions,
                     "Window functions are only allowed in the SELECT list and must not be nested.");
@@ -1950,6 +1954,7 @@ std::shared_ptr<AbstractExpression> SQLTranslator::_translate_hsql_expr(
         window_description = window_(std::move(partition_by_expressions), std::move(order_by_expressions),
                                      std::move(sort_modes), std::move(frame_description));
       }
+      */
 
       // Convert to upper-case to find mapping.
       std::transform(name.cbegin(), name.cend(), name.begin(),
