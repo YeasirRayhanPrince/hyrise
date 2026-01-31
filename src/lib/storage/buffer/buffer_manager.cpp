@@ -120,6 +120,25 @@ BufferManager& BufferManager::get() {
 }
 
 // TODO: This can take several templates to improve branching
+/**
+ * Case 1: Page on DRAM?
+    ├─ YES → Return immediately (cache hit)
+    └─ NO → Continue
+    
+  Case 3: NUMA disabled?
+      ├─ YES → Load from SSD → DRAM
+      └─ NO → Continue
+      
+  Case 4: Page evicted?
+      ├─ YES → Load from SSD → DRAM or NUMA (policy decides)
+      └─ NO → Continue
+      
+  Case 5: Page on NUMA?
+      ├─ Policy says "migrate to DRAM" → Move to DRAM
+      └─ Policy says "stay on NUMA" → Keep on NUMA
+ *  
+ */ 
+
 void BufferManager::make_resident(const PageID page_id, const AccessIntent access_intent,
                                   const Frame::StateVersionType state_before_exclusive) {
   // TODO: retake the desiscion here if something
@@ -187,7 +206,7 @@ void BufferManager::make_resident(const PageID page_id, const AccessIntent acces
     Fail("Could not allocate page on DRAM or NUMA for an evicted page. Try increasing the buffer pool sizes.");
   }
 
-  // Case 5: thepage should be one numa, check if we want to bypass
+  // Case 5: the page should be on numa, check if we want to bypass
   DebugAssert(Frame::node_id(state_before_exclusive) == _secondary_buffer_pool->node_id, "Should be on NUMA");
   for (auto repeat = size_t{0}; repeat < MAX_REPEAT_COUNT; ++repeat) {
     const auto bypass_dram =

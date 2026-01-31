@@ -25,7 +25,7 @@ class PageMigrationFixture : public benchmark::Fixture {
   }
 
  protected:
-  NodeID target_node = NodeID{2};
+  NodeID target_node = NodeID{1};
   std::byte* _mapped_region;
 };
 
