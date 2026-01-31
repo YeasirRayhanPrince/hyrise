@@ -10,7 +10,8 @@ BufferPool::BufferPool(const bool enabled, const size_t pool_size, const bool en
                        std::array<std::shared_ptr<VolatileRegion>, NUM_PAGE_SIZE_TYPES> volatile_regions,
                        MigrationPolicy migration_policy, std::shared_ptr<SSDRegion> ssd_region,
                        std::shared_ptr<BufferPool> target_buffer_pool, const NodeID numa_node,
-                       std::shared_ptr<BufferPoolMetrics> metrics)
+                       std::shared_ptr<BufferPoolMetrics> metrics, const bool enable_batching,
+                       const bool use_custom_syscall)
     : max_bytes(pool_size),
       used_bytes(0),
       metrics(metrics),
@@ -21,6 +22,8 @@ BufferPool::BufferPool(const bool enabled, const size_t pool_size, const bool en
       ssd_region(ssd_region),
       target_buffer_pool(target_buffer_pool),
       migration_policy(migration_policy),
+      enable_batching(enable_batching),
+      use_custom_syscall(use_custom_syscall),
       eviction_purge_worker(enable_eviction_purge_worker
                                 ? std::make_unique<PausableLoopThread>(IDLE_EVICTION_QUEUE_PURGE,
                                                                        [&](size_t) { this->purge_eviction_queue(); })
@@ -68,54 +71,71 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
 
   auto item = EvictionItem{};
 
-  // Find potential victim frame if we don't have enough space left
-  // TODO: Verify, that this is correct, cceh kthe numbersm, verify value type
-  while ((current_bytes + bytes_required - freed_bytes) > max_bytes) {
-    if (!eviction_queue->try_pop(item)) {
-      free_bytes(bytes_required);  // TODO: Check if this is correct
-      return false;
-    }
+  if (enable_batching) {
+    // Batch eviction path: evict multiple pages at once
+    while ((current_bytes + bytes_required - freed_bytes) > max_bytes) {
+      const auto bytes_needed = (current_bytes + bytes_required - freed_bytes) - max_bytes;
+      const auto min_page_bytes = bytes_for_size_type(MIN_PAGE_SIZE_TYPE);
+      const auto pages_to_evict = std::max<size_t>(1, (bytes_needed + min_page_bytes - 1) / min_page_bytes);
 
-    auto region = volatile_regions[static_cast<uint64_t>(item.page_id.size_type())];
-    auto frame = region->get_frame(item.page_id);
-    auto current_state_and_version = frame->state_and_version();
-
-    if (frame->node_id() != node_id) {
-      increment_counter(metrics->num_eviction_queue_items_purged);
-      continue;
-    }
-
-    // If the frame is already marked, we can evict it
-    if (!item.can_evict(current_state_and_version)) {
-      // If the frame is UNLOCKED, we can mark it
-      if (item.can_mark(current_state_and_version)) {
-        if (frame->try_mark(current_state_and_version)) {
-          add_to_eviction_queue(item.page_id, frame);
-          continue;
-        }
+      const auto evicted = evict_batch(pages_to_evict, &freed_bytes);
+      std::cout << "[BufferPool] Batch eviction completed: evicted=" << evicted 
+                << ", freed_bytes=" << freed_bytes << std::endl;
+      if (evicted == 0) {
+        free_bytes(bytes_required);
+        return false;
       }
-      increment_counter(metrics->num_eviction_queue_items_purged);
-      continue;
+
+      current_bytes = used_bytes.load();
     }
+  } else {
+    // Single eviction path (original behavior)
+    std::cout << "[BufferPool] Using single eviction path (batching disabled or small allocation)" << std::endl;
+    while ((current_bytes + bytes_required - freed_bytes) > max_bytes) {
+      if (!eviction_queue->try_pop(item)) {
+        free_bytes(bytes_required);
+        return false;
+      }
 
-    // Try locking the frame exclusively, TODO: prefer shared locking
-    if (!frame->try_lock_exclusive(current_state_and_version)) {
-      increment_counter(metrics->num_eviction_queue_items_purged);
-      continue;
+      auto region = volatile_regions[static_cast<uint64_t>(item.page_id.size_type())];
+      auto frame = region->get_frame(item.page_id);
+      auto current_state_and_version = frame->state_and_version();
+
+      if (frame->node_id() != node_id) {
+        increment_counter(metrics->num_eviction_queue_items_purged);
+        continue;
+      }
+
+      // If the frame is already marked, we can evict it
+      if (!item.can_evict(current_state_and_version)) {
+        // If the frame is UNLOCKED, we can mark it
+        if (item.can_mark(current_state_and_version)) {
+          if (frame->try_mark(current_state_and_version)) {
+            add_to_eviction_queue(item.page_id, frame);
+            continue;
+          }
+        }
+        increment_counter(metrics->num_eviction_queue_items_purged);
+        continue;
+      }
+
+      // Try locking the frame exclusively
+      if (!frame->try_lock_exclusive(current_state_and_version)) {
+        increment_counter(metrics->num_eviction_queue_items_purged);
+        continue;
+      }
+
+      Assert(frame->node_id() == node_id,
+             "Memory node mismatch: " + std::to_string(frame->node_id()) + " != " + std::to_string(node_id));
+
+      evict(item, frame);
+
+      increment_counter(metrics->num_evictions);
+
+      const auto size_type = item.page_id.size_type();
+      freed_bytes += bytes_for_size_type(size_type);
+      current_bytes = used_bytes.load();
     }
-
-    Assert(frame->node_id() == node_id,
-           "Memory node mismatch: " + std::to_string(frame->node_id()) + " != " + std::to_string(node_id));
-
-    evict(item, frame);
-
-    increment_counter(metrics->num_evictions);
-
-    // DebugAssert(Frame::state(frame->state_and_version()) != Frame::LOCKED, "Frame cannot be locked");
-
-    const auto size_type = item.page_id.size_type();
-    freed_bytes += bytes_for_size_type(size_type);
-    current_bytes = used_bytes.load();
   }
 
   // TODO: Check if this is correct
@@ -166,7 +186,7 @@ void BufferPool::evict(EvictionItem& item, Frame* frame) {
   Fail("Could not evict page after trying for " + std::to_string(MAX_REPEAT_COUNT) + " times");
 }
 
-size_t BufferPool::evict_batch(size_t num_pages_to_evict) {
+size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
   // Collect pages to evict in batches by size type and destination
   std::unordered_map<PageSizeType, std::vector<EvictionItem>> pages_by_size;
   std::vector<std::pair<EvictionItem, Frame*>> locked_pages;
@@ -214,8 +234,13 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict) {
   }
 
   if (locked_pages.empty()) {
+    std::cout << "[BufferPool::evict_batch] No pages locked for eviction after collecting " 
+              << pages_collected << " pages" << std::endl;
     return 0;  // No pages to evict
   }
+
+  std::cout << "[BufferPool::evict_batch] Phase 2: Locked " << locked_pages.size() 
+            << " pages, processing batch eviction by size type" << std::endl;
 
   // Phase 2: Batch evict by size type
   size_t evicted_count = 0;
@@ -241,12 +266,18 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict) {
         
         increment_counter(metrics->num_evictions);
         increment_counter(metrics->total_bytes_copied_to_ssd, bytes_for_size_type(size_type));
+        if (bytes_freed) {
+          *bytes_freed += bytes_for_size_type(size_type);
+        }
         evicted_count++;
       }
     } else {
       // Batch migrate to NUMA
+      std::cout << "[BufferPool::evict_batch] Attempting batch NUMA migration for " 
+                << items.size() << " pages of size_type=" << static_cast<int>(size_type) << std::endl;
       if (!target_buffer_pool->ensure_free_pages(size_type)) {
         // Fallback to individual eviction if batch allocation fails
+        std::cout << "[BufferPool::evict_batch] Target pool cannot allocate, fallback to queue" << std::endl;
         for (const auto& item : items) {
           auto frame = region->get_frame(item.page_id);
           frame->unlock_exclusive();
@@ -272,6 +303,9 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict) {
         target_buffer_pool->add_to_eviction_queue(item.page_id, frame);
         
         increment_counter(metrics->num_evictions);
+        if (bytes_freed) {
+          *bytes_freed += bytes_for_size_type(size_type);
+        }
         evicted_count++;
       }
     }

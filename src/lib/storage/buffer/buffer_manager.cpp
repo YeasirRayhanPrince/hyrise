@@ -54,6 +54,8 @@ BufferManager::Config BufferManager::Config::from_env() {
     config.memory_node = static_cast<NodeID>(json.value("memory_node", static_cast<int64_t>(config.memory_node)));
     config.cpu_node = static_cast<NodeID>(json.value("cpu_node", static_cast<int64_t>(config.cpu_node)));
     config.enable_numa = json.value("enable_numa", config.enable_numa);
+    config.enable_batching = json.value("enable_batching", config.enable_batching);
+    config.use_custom_syscall = json.value("use_custom_syscall", config.use_custom_syscall);
 
     return config;
   } else {
@@ -72,6 +74,8 @@ nlohmann::json BufferManager::Config::to_json() const {
   json["migration_policy"]["numa_write_ratio"] = migration_policy.get_numa_write_ratio();
   json["enable_eviction_purge_worker"] = enable_eviction_purge_worker;
   json["memory_node"] = static_cast<int64_t>(memory_node);
+  json["enable_batching"] = enable_batching;
+  json["use_custom_syscall"] = use_custom_syscall;
   return json;
 }
 
@@ -90,10 +94,12 @@ BufferManager::BufferManager(const Config config)
       _primary_buffer_pool(std::make_shared<BufferPool>(true, config.dram_buffer_pool_size,
                                                         config.enable_eviction_purge_worker, _volatile_regions,
                                                         config.migration_policy, _ssd_region, _secondary_buffer_pool,
-                                                        config.cpu_node, _metrics->dram_buffer_pool_metrics)),
+                                                        config.cpu_node, _metrics->dram_buffer_pool_metrics,
+                                                        config.enable_batching, config.use_custom_syscall)),
       _secondary_buffer_pool(std::make_shared<BufferPool>(
           config.enable_numa, config.numa_buffer_pool_size, config.enable_eviction_purge_worker, _volatile_regions,
-          config.migration_policy, _ssd_region, nullptr, config.memory_node, _metrics->numa_buffer_pool_metrics)) {
+          config.migration_policy, _ssd_region, nullptr, config.memory_node, _metrics->numa_buffer_pool_metrics,
+          config.enable_batching, config.use_custom_syscall)) {
   Assert(config.cpu_node != config.memory_node, "CPU and memory node must be different");
 }
 

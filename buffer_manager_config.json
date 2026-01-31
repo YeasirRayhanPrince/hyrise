@@ -1,11 +1,13 @@
 {
-  "dram_buffer_pool_size": 268435456,
-  "numa_buffer_pool_size": 268435456,
+  "dram_buffer_pool_size": 67108864,
+  "numa_buffer_pool_size": 67108864,
   "ssd_path": "/users/yrayhan/hyrise/ssd",
   "enable_eviction_purge_worker": false,
   "memory_node": 1,
   "cpu_node": 0,
   "enable_numa": true,
+  "enable_batching": true,
+  "use_custom_syscall": false,
   "migration_policy": {
     "dram_read_ratio": 0.7,
     "dram_write_ratio": 0.7,

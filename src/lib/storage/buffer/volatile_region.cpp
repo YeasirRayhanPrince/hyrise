@@ -90,6 +90,10 @@ void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& pa
   const auto os_pages_per_hyrise_page = page_size_bytes / OS_PAGE_SIZE;
   const auto total_os_pages = page_ids.size() * os_pages_per_hyrise_page;
 
+  std::cout << "[VolatileRegion::move_pages_to_numa_node_batch] Moving " << page_ids.size() 
+            << " Hyrise pages (" << total_os_pages << " OS pages) to NUMA node " 
+            << target_memory_node << std::endl;
+
   // Prepare arrays for move_pages syscall
   std::vector<void*> pages_to_move(total_os_pages);
   std::vector<int> nodes(total_os_pages);
@@ -113,6 +117,9 @@ void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& pa
     const auto error = errno;
     Fail("Batch move_pages failed: " + strerror(error));
   }
+
+  std::cout << "[VolatileRegion::move_pages_to_numa_node_batch] Successfully migrated " 
+            << page_ids.size() << " pages to node " << target_memory_node << std::endl;
 
   // Update frame metadata for all migrated pages
   for (const auto& page_id : page_ids) {
@@ -163,7 +170,11 @@ std::tuple<PageID, Frame*, std::byte*> VolatileRegion::allocate() {
   if constexpr (ENABLE_MPROTECT) {
     if (mprotect(ptr, bytes_for_size_type(_size_type), PROT_READ | PROT_WRITE) != 0) {
       const auto error = errno;
-      Fail("Failed to mprotect: " + strerror(error));
+      Fail("Failed to mprotect: " + std::string(strerror(error)) +
+           ", page_id=" + std::to_string(page_id.index) +
+           ", size_type=" + std::string(magic_enum::enum_name(page_id.size_type())) +
+           ", data=" + std::to_string(reinterpret_cast<uintptr_t>(ptr)) +
+           ", num_bytes=" + std::to_string(bytes_for_size_type(_size_type)));
     }
   }
   return std::make_tuple(page_id, &_frames[idx], ptr);
@@ -172,6 +183,13 @@ std::tuple<PageID, Frame*, std::byte*> VolatileRegion::allocate() {
 std::byte* VolatileRegion::get_page(PageID page_id) {
   const auto num_bytes = bytes_for_size_type(_size_type);
   auto data = _region_start + page_id.index * num_bytes;
+  DebugAssert(data >= _region_start && (data + num_bytes) <= _region_end,
+              "Page out of region bounds: page_id=" + std::to_string(page_id.index) +
+                  ", size_type=" + std::string(magic_enum::enum_name(_size_type)) +
+                  ", data=" + std::to_string(reinterpret_cast<uintptr_t>(data)) +
+                  ", region_start=" + std::to_string(reinterpret_cast<uintptr_t>(_region_start)) +
+                  ", region_end=" + std::to_string(reinterpret_cast<uintptr_t>(_region_end)) +
+                  ", num_bytes=" + std::to_string(num_bytes));
   DebugAssertPageAligned(data);
   return data;
 }
@@ -206,7 +224,11 @@ void VolatileRegion::protect_page(const PageID page_id) {
     auto data = get_page(page_id);
     if (mprotect(data, page_id.num_bytes(), PROT_NONE) != 0) {
       const auto error = errno;
-      Fail("Failed to mprotect: " + strerror(error));
+      Fail("Failed to mprotect: " + std::string(strerror(error)) + 
+           ", page_id=" + std::to_string(page_id.index) +
+           ", size_type=" + std::string(magic_enum::enum_name(page_id.size_type())) +
+           ", data=" + std::to_string(reinterpret_cast<uintptr_t>(data)) +
+           ", num_bytes=" + std::to_string(page_id.num_bytes()));
     }
   }
 }
@@ -217,7 +239,11 @@ void VolatileRegion::unprotect_page(const PageID page_id) {
     auto data = get_page(page_id);
     if (mprotect(data, page_id.num_bytes(), PROT_READ | PROT_WRITE) != 0) {
       const auto error = errno;
-      Fail("Failed to mprotect: " + strerror(error));
+      Fail("Failed to mprotect: " + std::string(strerror(error)) + 
+           ", page_id=" + std::to_string(page_id.index) +
+           ", size_type=" + std::string(magic_enum::enum_name(page_id.size_type())) +
+           ", data=" + std::to_string(reinterpret_cast<uintptr_t>(data)) +
+           ", num_bytes=" + std::to_string(page_id.num_bytes()));
     }
   }
 }
