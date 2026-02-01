@@ -109,6 +109,15 @@ struct EvictionItem {
 
 using EvictionQueue = tbb::concurrent_queue<EvictionItem>;
 
+// Promotion queue for deferred batch promotion (NUMA -> DRAM)
+using PromotionQueue = tbb::concurrent_queue<PageID>;
+
+// Minimum number of pages to promote in a batch operation
+constexpr size_t MIN_PROMOTION_BATCH_SIZE = 32;
+
+// Maximum queue items to scan when collecting pages for batch promotion
+constexpr size_t MAX_PROMOTION_QUEUE_SCAN_MULTIPLIER = 16;
+
 // Enable or or disable mprotect calls for debugging purposes
 constexpr bool ENABLE_MPROTECT = false;
 

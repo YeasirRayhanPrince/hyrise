@@ -42,8 +42,11 @@ class BufferManager : public boost::container::pmr::memory_resource, public Nonc
     // Enables a background threads the cleans the eviction queue from junk (default: false)
     bool enable_eviction_purge_worker = false;
 
-    // Enable batch eviction: collect pages and evict in batches instead of one-by-one (default: false)
-    bool enable_batching = false;
+    // Enable batch eviction (demotion): collect pages and evict in batches instead of one-by-one (default: false)
+    bool enable_batch_eviction = false;
+
+    // Enable batch promotion: collect pages and promote in batches instead of one-by-one (default: false)
+    bool enable_batch_promotion = false;
 
     // Use custom move_pages syscall for batch operations (default: false)
     // When false, uses standard Linux move_pages(2). When true, uses optimized custom implementation.

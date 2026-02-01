@@ -16,13 +16,20 @@ struct BufferPool {
              std::array<std::shared_ptr<VolatileRegion>, NUM_PAGE_SIZE_TYPES> volatile_regions,
              MigrationPolicy migration_policy, std::shared_ptr<SSDRegion> ssd_region,
              std::shared_ptr<BufferPool> target_buffer_pool, const NodeID numa_node, std::shared_ptr<BufferPoolMetrics> metrics,
-             const bool enable_batching = false, const bool use_custom_syscall = false);
+             const bool enable_batch_eviction = false, const bool use_custom_syscall = false);
 
   void evict(EvictionItem& item, Frame* frame);
   
   // Batch eviction: evict multiple pages at once for better performance
   // Optionally returns freed bytes via bytes_freed.
   size_t evict_batch(size_t num_pages_to_evict, size_t* bytes_freed = nullptr);
+
+  // Batch promotion: promote multiple pages from NUMA to DRAM at once
+  // Returns the number of pages successfully promoted
+  size_t promote_batch(NodeID target_node_id);
+
+  // Add a page to the promotion queue for deferred batch promotion
+  void add_to_promotion_queue(const PageID page_id);
 
   uint64_t reserve_bytes(const uint64_t bytes);
 
@@ -55,6 +62,9 @@ struct BufferPool {
   // Eviction queue for frames that are not pinned
   std::unique_ptr<EvictionQueue> eviction_queue;
 
+  // Promotion queue for pages to be promoted from NUMA to DRAM in batch
+  std::unique_ptr<PromotionQueue> promotion_queue;
+
   // Async background worker that purges the eviction queue
   std::unique_ptr<PausableLoopThread> eviction_purge_worker;
 
@@ -67,7 +77,7 @@ struct BufferPool {
   const bool enabled;
 
   // Batch eviction settings
-  const bool enable_batching;
+  const bool enable_batch_eviction;
   const bool use_custom_syscall;
 };
 }  // namespace hyrise

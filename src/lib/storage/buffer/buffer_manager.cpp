@@ -54,7 +54,8 @@ BufferManager::Config BufferManager::Config::from_env() {
     config.memory_node = static_cast<NodeID>(json.value("memory_node", static_cast<int64_t>(config.memory_node)));
     config.cpu_node = static_cast<NodeID>(json.value("cpu_node", static_cast<int64_t>(config.cpu_node)));
     config.enable_numa = json.value("enable_numa", config.enable_numa);
-    config.enable_batching = json.value("enable_batching", config.enable_batching);
+    config.enable_batch_eviction = json.value("enable_batch_eviction", config.enable_batch_eviction);
+    config.enable_batch_promotion = json.value("enable_batch_promotion", config.enable_batch_promotion);
     config.use_custom_syscall = json.value("use_custom_syscall", config.use_custom_syscall);
 
     return config;
@@ -74,7 +75,8 @@ nlohmann::json BufferManager::Config::to_json() const {
   json["migration_policy"]["numa_write_ratio"] = migration_policy.get_numa_write_ratio();
   json["enable_eviction_purge_worker"] = enable_eviction_purge_worker;
   json["memory_node"] = static_cast<int64_t>(memory_node);
-  json["enable_batching"] = enable_batching;
+  json["enable_batch_eviction"] = enable_batch_eviction;
+  json["enable_batch_promotion"] = enable_batch_promotion;
   json["use_custom_syscall"] = use_custom_syscall;
   return json;
 }
@@ -95,11 +97,11 @@ BufferManager::BufferManager(const Config config)
                                                         config.enable_eviction_purge_worker, _volatile_regions,
                                                         config.migration_policy, _ssd_region, _secondary_buffer_pool,
                                                         config.cpu_node, _metrics->dram_buffer_pool_metrics,
-                                                        config.enable_batching, config.use_custom_syscall)),
+                                                        config.enable_batch_eviction, config.use_custom_syscall)),
       _secondary_buffer_pool(std::make_shared<BufferPool>(
           config.enable_numa, config.numa_buffer_pool_size, config.enable_eviction_purge_worker, _volatile_regions,
           config.migration_policy, _ssd_region, nullptr, config.memory_node, _metrics->numa_buffer_pool_metrics,
-          config.enable_batching, config.use_custom_syscall)) {
+          config.enable_batch_eviction, config.use_custom_syscall)) {
   Assert(config.cpu_node != config.memory_node, "CPU and memory node must be different");
   
   // Print buffer manager configuration
@@ -107,7 +109,8 @@ BufferManager::BufferManager(const Config config)
   std::cout << "DRAM pool size: " << (config.dram_buffer_pool_size / (1024.0 * 1024.0)) << " MB" << std::endl;
   std::cout << "NUMA pool size: " << (config.numa_buffer_pool_size / (1024.0 * 1024.0)) << " MB" << std::endl;
   std::cout << "NUMA enabled: " << (config.enable_numa ? "true" : "false") << std::endl;
-  std::cout << "Batching enabled: " << (config.enable_batching ? "true" : "false") << std::endl;
+  std::cout << "Batch eviction enabled: " << (config.enable_batch_eviction ? "true" : "false") << std::endl;
+  std::cout << "Batch promotion enabled: " << (config.enable_batch_promotion ? "true" : "false") << std::endl;
   std::cout << "CPU node: " << static_cast<int>(config.cpu_node) << std::endl;
   std::cout << "Memory node: " << static_cast<int>(config.memory_node) << std::endl;
   std::cout << "Migration policy:" << std::endl;
@@ -124,12 +127,20 @@ BufferManager::~BufferManager() {
   std::cout << "DRAM Pool:" << std::endl;
   std::cout << "  Total batch evictions: " << _metrics->dram_buffer_pool_metrics->num_batch_evictions.load() << std::endl;
   std::cout << "  Total pages batched: " << _metrics->dram_buffer_pool_metrics->total_pages_batched.load() << std::endl;
-  std::cout << "  Average batch size: " << _metrics->dram_buffer_pool_metrics->avg_batch_size() << std::endl;
+  std::cout << "  Average batch size: " << _metrics->dram_buffer_pool_metrics->avg_batch_eviction_size() << std::endl;
   
   std::cout << "NUMA Pool:" << std::endl;
   std::cout << "  Total batch evictions: " << _metrics->numa_buffer_pool_metrics->num_batch_evictions.load() << std::endl;
   std::cout << "  Total pages batched: " << _metrics->numa_buffer_pool_metrics->total_pages_batched.load() << std::endl;
-  std::cout << "  Average batch size: " << _metrics->numa_buffer_pool_metrics->avg_batch_size() << std::endl;
+  std::cout << "  Average batch size: " << _metrics->numa_buffer_pool_metrics->avg_batch_eviction_size() << std::endl;
+  std::cout << "=================================\n" << std::endl;
+
+  // Print batch promotion statistics
+  std::cout << "=== Batch Promotion Statistics ===" << std::endl;
+  std::cout << "NUMA Pool (source for promotion to DRAM):" << std::endl;
+  std::cout << "  Total batch promotions: " << _metrics->numa_buffer_pool_metrics->num_batch_promotions.load() << std::endl;
+  std::cout << "  Total pages promoted: " << _metrics->numa_buffer_pool_metrics->total_pages_promoted.load() << std::endl;
+  std::cout << "  Average batch size: " << _metrics->numa_buffer_pool_metrics->avg_batch_promotion_size() << std::endl;
   std::cout << "=================================\n" << std::endl;
   
   unmap_region(_mapped_region);
@@ -247,21 +258,52 @@ void BufferManager::make_resident(const PageID page_id, const AccessIntent acces
         (access_intent == AccessIntent::Read && _config.migration_policy.bypass_dram_during_read()) ||
         (access_intent == AccessIntent::Write && _config.migration_policy.bypass_dram_during_write());
 
-    if (bypass_dram) {
-      // Case 5.1: Do nothing, stay on NUMA
-      increment_counter(_metrics->total_hits);
-      return;
-    } else {
-      // Case 5.2: Migrate to DRAM
-      if (!_primary_buffer_pool->ensure_free_pages(page_id.size_type())) {
-        yield(repeat);
-        continue;
+    if (_config.enable_batch_promotion) {
+      // ========== BATCH PROMOTION PATH ==========
+      if (bypass_dram) {
+        // Case 5.1 (Batch): Stay on NUMA, add to promotion queue for deferred batch promotion
+        _secondary_buffer_pool->add_to_promotion_queue(page_id);
+        increment_counter(_metrics->total_hits);
+        return;
+      } else {
+        // Case 5.2 (Batch): Migrate to DRAM with batch promotion
+        // Check if we have enough pages in promotion queue for batch promotion
+        if (_secondary_buffer_pool->promotion_queue->unsafe_size() >= MIN_PROMOTION_BATCH_SIZE) {
+          // Batch promote queued pages
+          if (_primary_buffer_pool->ensure_free_pages(page_id.size_type())) {
+            _secondary_buffer_pool->promote_batch(_primary_buffer_pool->node_id);
+          }
+        }
+        
+        // Promote the current page (single-page promotion)
+        if (!_primary_buffer_pool->ensure_free_pages(page_id.size_type())) {
+          yield(repeat);
+          continue;
+        }
+        _secondary_buffer_pool->free_bytes(bytes_for_size_type(page_id.size_type()));
+        region->mbind_to_numa_node(page_id, _primary_buffer_pool->node_id);
+        increment_counter(_metrics->total_hits);
+        increment_counter(_metrics->total_bytes_copied_from_numa_to_dram, page_id.num_bytes());
+        return;
       }
-      _secondary_buffer_pool->free_bytes(bytes_for_size_type(page_id.size_type()));
-      region->mbind_to_numa_node(page_id, _primary_buffer_pool->node_id);
-      increment_counter(_metrics->total_hits);
-      increment_counter(_metrics->total_bytes_copied_from_numa_to_dram, page_id.num_bytes());
-      return;
+    } else {
+      // ========== NON-BATCH PROMOTION PATH ==========
+      if (bypass_dram) {
+        // Case 5.1 (Non-Batch): Stay on NUMA, do nothing
+        increment_counter(_metrics->total_hits);
+        return;
+      } else {
+        // Case 5.2 (Non-Batch): Migrate to DRAM with single-page promotion
+        if (!_primary_buffer_pool->ensure_free_pages(page_id.size_type())) {
+          yield(repeat);
+          continue;
+        }
+        _secondary_buffer_pool->free_bytes(bytes_for_size_type(page_id.size_type()));
+        region->mbind_to_numa_node(page_id, _primary_buffer_pool->node_id);
+        increment_counter(_metrics->total_hits);
+        increment_counter(_metrics->total_bytes_copied_from_numa_to_dram, page_id.num_bytes());
+        return;
+      }
     }
   }
   Fail("Could not allocate page on DRAM. Try increasing the buffer pool size.");

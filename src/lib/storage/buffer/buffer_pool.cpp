@@ -10,7 +10,7 @@ BufferPool::BufferPool(const bool enabled, const size_t pool_size, const bool en
                        std::array<std::shared_ptr<VolatileRegion>, NUM_PAGE_SIZE_TYPES> volatile_regions,
                        MigrationPolicy migration_policy, std::shared_ptr<SSDRegion> ssd_region,
                        std::shared_ptr<BufferPool> target_buffer_pool, const NodeID numa_node,
-                       std::shared_ptr<BufferPoolMetrics> metrics, const bool enable_batching,
+                       std::shared_ptr<BufferPoolMetrics> metrics, const bool enable_batch_eviction,
                        const bool use_custom_syscall)
     : max_bytes(pool_size),
       used_bytes(0),
@@ -18,11 +18,12 @@ BufferPool::BufferPool(const bool enabled, const size_t pool_size, const bool en
       enabled(enabled),
       volatile_regions(volatile_regions),
       eviction_queue(std::make_unique<EvictionQueue>()),
+      promotion_queue(std::make_unique<PromotionQueue>()),
       node_id(numa_node),
       ssd_region(ssd_region),
       target_buffer_pool(target_buffer_pool),
       migration_policy(migration_policy),
-      enable_batching(enable_batching),
+      enable_batch_eviction(enable_batch_eviction),
       use_custom_syscall(use_custom_syscall),
       eviction_purge_worker(enable_eviction_purge_worker
                                 ? std::make_unique<PausableLoopThread>(IDLE_EVICTION_QUEUE_PURGE,
@@ -71,7 +72,7 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
 
   auto item = EvictionItem{};
 
-  if (enable_batching) {
+  if (enable_batch_eviction) {
     // Batch eviction path: evict multiple pages at once
     size_t consecutive_failures = 0;
     const size_t MAX_CONSECUTIVE_FAILURES = 3;
@@ -105,7 +106,7 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
   }
   
   // Fallback to single-page eviction if batching is disabled or failed
-  if (!enable_batching || (current_bytes + bytes_required - freed_bytes) > max_bytes) {
+  if (!enable_batch_eviction || (current_bytes + bytes_required - freed_bytes) > max_bytes) {
     while ((current_bytes + bytes_required - freed_bytes) > max_bytes) {
       if (!eviction_queue->try_pop(item)) {
         free_bytes(bytes_required);
@@ -348,6 +349,95 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
   }
 
   return evicted_count;
+}
+
+void BufferPool::add_to_promotion_queue(const PageID page_id) {
+  promotion_queue->push(page_id);
+}
+
+size_t BufferPool::promote_batch(NodeID target_node_id) {
+  // Collect pages to promote, grouped by size type
+  std::unordered_map<PageSizeType, std::vector<PageID>> pages_by_size;
+  std::vector<std::pair<PageID, Frame*>> locked_pages;
+  
+  PageID page_id;
+  size_t pages_collected = 0;
+  size_t queue_items_scanned = 0;
+  
+  // Calculate maximum queue items to scan (lookahead depth)
+  const size_t max_queue_scans = MIN_PROMOTION_BATCH_SIZE * MAX_PROMOTION_QUEUE_SCAN_MULTIPLIER;
+
+  // Phase 1: Collect and lock pages from promotion queue
+  while (pages_collected < MIN_PROMOTION_BATCH_SIZE && queue_items_scanned < max_queue_scans) {
+    if (!promotion_queue->try_pop(page_id)) {
+      break;  // No more items in queue
+    }
+    
+    queue_items_scanned++;
+
+    auto region = volatile_regions[static_cast<uint64_t>(page_id.size_type())];
+    auto frame = region->get_frame(page_id);
+    auto current_state_and_version = frame->state_and_version();
+
+    // Skip if page is not on this node (already promoted or moved elsewhere)
+    if (frame->node_id() != node_id) {
+      continue;  // Stale entry, skip
+    }
+
+    // Skip if page is locked (being used by another thread)
+    if (Frame::state(current_state_and_version) != Frame::UNLOCKED) {
+      // Re-queue for later attempt
+      promotion_queue->push(page_id);
+      continue;
+    }
+
+    // Try locking the frame exclusively for promotion
+    if (!frame->try_lock_exclusive(current_state_and_version)) {
+      // Re-queue for later attempt
+      promotion_queue->push(page_id);
+      continue;
+    }
+
+    // Re-check node_id after locking (might have changed)
+    if (frame->node_id() != node_id) {
+      frame->unlock_exclusive();
+      continue;  // Stale, skip
+    }
+
+    // Successfully locked - add to batch
+    locked_pages.emplace_back(page_id, frame);
+    pages_by_size[page_id.size_type()].push_back(page_id);
+    pages_collected++;
+  }
+
+  if (locked_pages.empty()) {
+    return 0;  // No pages to promote
+  }
+
+  // Phase 2: Batch promote by size type
+  size_t promoted_count = 0;
+
+  for (auto& [size_type, page_ids] : pages_by_size) {
+    auto region = volatile_regions[static_cast<uint64_t>(size_type)];
+    
+    // Perform batch migration using move_pages
+    region->move_pages_to_numa_node_batch(page_ids, target_node_id);
+
+    // Unlock all frames after migration
+    for (const auto& pid : page_ids) {
+      auto frame = region->get_frame(pid);
+      frame->unlock_exclusive();
+      promoted_count++;
+    }
+  }
+
+  // Update batch promotion metrics
+  if (promoted_count > 0) {
+    metrics->num_batch_promotions.fetch_add(1, std::memory_order_relaxed);
+    metrics->total_pages_promoted.fetch_add(promoted_count, std::memory_order_relaxed);
+  }
+
+  return promoted_count;
 }
 
 size_t BufferPool::memory_consumption() const {
