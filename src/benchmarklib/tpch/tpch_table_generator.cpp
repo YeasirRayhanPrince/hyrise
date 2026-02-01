@@ -138,7 +138,9 @@ std::unordered_map<std::string, BenchmarkTableInfo> TPCHTableGenerator::generate
 #ifdef HYRISE_WITH_JEMALLOC
   auto allocator = PolymorphicAllocator<size_t>{&JemallocMemoryResource::get()};
 #else
-  auto allocator = PolymorphicAllocator<size_t>{&LinearBufferResource::get()};
+  // Use buffer manager from Hyrise singleton (same as YCSB does)
+  // This ensures TPC-H table generation allocates through the benchmark's buffer manager
+  auto allocator = PolymorphicAllocator<size_t>{&Hyrise::get().buffer_manager};
 #endif
   auto alloc_pin_guard = AllocatorPinGuard{allocator};
 

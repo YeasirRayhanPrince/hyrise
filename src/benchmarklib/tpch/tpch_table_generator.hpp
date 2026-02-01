@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "abstract_table_generator.hpp"
+#include "boost/container/pmr/memory_resource.hpp"
 #include "resolve_type.hpp"
 #include "storage/chunk.hpp"
 #include "storage/table.hpp"

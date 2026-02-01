@@ -2,6 +2,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <fstream>
 #include <utility>
@@ -487,6 +488,8 @@ void BufferManager::add_to_eviction_queue(const PageID page_id, Frame* frame) {
 }
 
 void* BufferManager::do_allocate(std::size_t bytes, std::size_t alignment) {
+  static const bool log_allocations = std::getenv("HYRISE_LOG_BUFFER_MANAGER_ALLOC") != nullptr;
+  static std::atomic<uint64_t> allocation_log_counter{0};
   const auto size_type = find_fitting_page_size_type(bytes);
 
   auto region = _volatile_regions[static_cast<uint64_t>(size_type)];
@@ -494,6 +497,17 @@ void* BufferManager::do_allocate(std::size_t bytes, std::size_t alignment) {
 
   increment_counter(_metrics->num_allocs);
   increment_counter(_metrics->total_allocated_bytes, bytes_for_size_type(size_type));
+
+  if (log_allocations) {
+    const auto current = allocation_log_counter.fetch_add(1, std::memory_order_relaxed);
+    if (current < 10 || current % 10000 == 0) {
+      std::cout << "[BM alloc] bytes=" << bytes
+                << " size_type=" << static_cast<int>(size_type)
+                << " page_id=" << page_id
+                << " ptr=" << ptr
+                << std::endl;
+    }
+  }
 
   auto state_and_version = frame->state_and_version();
   if (!frame->try_lock_exclusive(state_and_version)) {

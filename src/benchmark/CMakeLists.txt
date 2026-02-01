@@ -139,6 +139,7 @@ add_executable(
     storage/buffer/allocation_benchmark.cpp
     storage/buffer/ycsb_buffer_manager_benchmark.cpp
     storage/buffer/tpcc_buffer_manager_benchmark.cpp
+    storage/buffer/tpch_buffer_manager_benchmark.cpp
 )
 
 if (NOT APPLE)

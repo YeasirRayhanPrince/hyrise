@@ -194,6 +194,7 @@ void VolatileRegion::free(PageID page_id) {
   const int flags = MADV_FREE_REUSABLE;
 #elif __linux__
   const int flags = MADV_DONTNEED;
+  // const int flags = MADV_FREE;
 #endif
   const auto num_bytes = bytes_for_size_type(_size_type);
   auto ptr = get_page(page_id);
