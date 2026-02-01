@@ -69,4 +69,10 @@ constexpr auto NumaOnlyMigrationPolicy = MigrationPolicy(0, 0, 1, 1);
 // Only enanle NUMA
 constexpr auto DramOnlyMigrationPolicy = MigrationPolicy(1, 1, 0, 0);
 
+// CustomMigrationPolicy: sentinel value indicating that ratios should be read from JSON config.
+// When this policy is used, the benchmark will NOT override config.migration_policy,
+// allowing the values from buffer_manager_config.json to be used.
+// The -1 values are sentinel markers that should never actually be used for bypass calculations.
+constexpr auto CustomMigrationPolicy = MigrationPolicy(-1, -1, -1, -1);
+
 }  // namespace hyrise

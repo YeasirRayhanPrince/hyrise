@@ -1,11 +1,21 @@
 #include "volatile_region.hpp"
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <unistd.h>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 #include "utils/assert.hpp"
 
 #if HYRISE_NUMA_SUPPORT
 #include <numa.h>
 #include <numaif.h>
+
+// Custom move_pages2 syscall number (Linux kernel extension)
+#ifndef SYS_move_pages2
+#define SYS_move_pages2 462
+#endif
+
 #endif
 
 namespace hyrise {
@@ -61,13 +71,41 @@ void VolatileRegion::mbind_to_numa_node(PageID page_id, const NodeID target_memo
   DebugAssert(target_memory_node != INVALID_NODE_ID, "Numa node has not been set.");
 
   const auto num_bytes = bytes_for_size_type(_size_type);
+  
+  // Debug: Count current memory mappings
+  static std::atomic<size_t> mbind_call_count{0};
+  auto call_num = mbind_call_count.fetch_add(1, std::memory_order_relaxed);
+  
+  // Log every 10000 calls to avoid too much output
+  if (call_num % 10000 == 0) {
+    std::ifstream maps_file("/proc/self/maps");
+    size_t map_count = std::count(std::istreambuf_iterator<char>(maps_file),
+                                   std::istreambuf_iterator<char>(), '\n');
+    std::cerr << "[DEBUG mbind] call_num=" << call_num 
+              << " page_id=" << page_id.index 
+              << " size_type=" << static_cast<int>(_size_type)
+              << " num_bytes=" << num_bytes 
+              << " target_node=" << target_memory_node 
+              << " current_map_count=" << map_count << std::endl;
+  }
+  
   auto nodes = numa_allocate_nodemask();
   numa_bitmask_setbit(nodes, target_memory_node);
   if (mbind(get_page(page_id), num_bytes, MPOL_BIND, nodes ? nodes->maskp : NULL, nodes ? nodes->size + 1 : 0,
             MPOL_MF_MOVE | MPOL_MF_STRICT) != 0) {
     const auto error = errno;
+    
+    // Debug: Log failure details
+    std::ifstream maps_file("/proc/self/maps");
+    size_t map_count = std::count(std::istreambuf_iterator<char>(maps_file),
+                                   std::istreambuf_iterator<char>(), '\n');
+    std::cerr << "[DEBUG mbind] FAILED! call_num=" << call_num
+              << " page_id=" << page_id.index 
+              << " errno=" << error << " (" << strerror(error) << ")"
+              << " map_count=" << map_count << std::endl;
+    
     numa_bitmask_free(nodes);
-    Fail("Mbind failed: " + strerror(error) +
+    Fail("Mbind failed: " + std::string(strerror(error)) +
          " . Either no space is left or vm map count is exhausted. Try: \"sudo sysctl vm.max_map_count=X\"");
   }
   numa_bitmask_free(nodes);
@@ -77,7 +115,9 @@ void VolatileRegion::mbind_to_numa_node(PageID page_id, const NodeID target_memo
 }
 
 void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& page_ids, 
-                                                     const NodeID target_memory_node) {
+                                                     const NodeID target_memory_node,
+                                                     bool use_custom_syscall, int migration_mode,
+                                                     int migration_max_bs) {
 #if HYRISE_NUMA_SUPPORT
   if (page_ids.empty()) {
     return;
@@ -89,10 +129,6 @@ void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& pa
   const auto page_size_bytes = bytes_for_size_type(_size_type);
   const auto os_pages_per_hyrise_page = page_size_bytes / OS_PAGE_SIZE;
   const auto total_os_pages = page_ids.size() * os_pages_per_hyrise_page;
-
-  // std::cout << "[VolatileRegion::move_pages_to_numa_node_batch] Moving " << page_ids.size() 
-  //          << " Hyrise pages (" << total_os_pages << " OS pages) to NUMA node " 
-  //          << target_memory_node << std::endl;
 
   // Prepare arrays for move_pages syscall
   std::vector<void*> pages_to_move(total_os_pages);
@@ -112,14 +148,26 @@ void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& pa
     }
   }
 
-  // Perform batch migration
-  if (move_pages(0, total_os_pages, pages_to_move.data(), nodes.data(), status.data(), MPOL_MF_MOVE) < 0) {
-    const auto error = errno;
-    Fail("Batch move_pages failed: " + strerror(error));
+  // Perform batch migration using standard or custom syscall
+  if (use_custom_syscall) {
+    // Custom move_pages2 syscall: move_pages2(count, pages[], nodes[], status[], migrate_mode, nr_max_batched_migration)
+    const auto result = syscall(SYS_move_pages2, 0, total_os_pages, pages_to_move.data(), 
+                                 nodes.data(), status.data(), migration_mode, migration_max_bs);
+    if (result < 0) {
+      const auto error = errno;
+      if (error == ENOSYS) {
+        Fail("Custom move_pages2 syscall (" + std::to_string(SYS_move_pages2) + 
+             ") is not available. Ensure the kernel supports this syscall.");
+      }
+      Fail("Custom move_pages2 failed: " + std::string(strerror(error)));
+    }
+  } else {
+    // Standard move_pages syscall
+    if (move_pages(0, total_os_pages, pages_to_move.data(), nodes.data(), status.data(), MPOL_MF_MOVE) < 0) {
+      const auto error = errno;
+      Fail("Batch move_pages failed: " + std::string(strerror(error)));
+    }
   }
-
-  // std::cout << "[VolatileRegion::move_pages_to_numa_node_batch] Successfully migrated " 
-  //          << page_ids.size() << " pages to node " << target_memory_node << std::endl;
 
   // Update frame metadata for all migrated pages
   for (const auto& page_id : page_ids) {
@@ -129,6 +177,9 @@ void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& pa
   _metrics->num_numa_tonode_memory_calls.fetch_add(1, std::memory_order_relaxed);
 #else
   // Fallback for non-NUMA builds: just update metadata
+  (void)use_custom_syscall;
+  (void)migration_mode;
+  (void)migration_max_bs;
   for (const auto& page_id : page_ids) {
     _frames[page_id.index].set_node_id(target_memory_node);
   }

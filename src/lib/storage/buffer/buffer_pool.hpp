@@ -16,7 +16,10 @@ struct BufferPool {
              std::array<std::shared_ptr<VolatileRegion>, NUM_PAGE_SIZE_TYPES> volatile_regions,
              MigrationPolicy migration_policy, std::shared_ptr<SSDRegion> ssd_region,
              std::shared_ptr<BufferPool> target_buffer_pool, const NodeID numa_node, std::shared_ptr<BufferPoolMetrics> metrics,
-             const bool enable_batch_eviction = false, const bool use_custom_syscall = false);
+             const bool enable_batch_eviction = false, const bool use_custom_syscall = false,
+             const size_t min_demotion_batch_size = 32, const size_t min_promotion_batch_size = 32,
+             const size_t max_demotion_queue_scan_multiplier = 16, const size_t max_promotion_queue_scan_multiplier = 16,
+             const int migration_mode = 0, const int migration_max_bs = 32);
 
   void evict(EvictionItem& item, Frame* frame);
   
@@ -79,5 +82,11 @@ struct BufferPool {
   // Batch eviction settings
   const bool enable_batch_eviction;
   const bool use_custom_syscall;
+  const size_t min_demotion_batch_size;
+  const size_t min_promotion_batch_size;
+  const size_t max_demotion_queue_scan_multiplier;
+  const size_t max_promotion_queue_scan_multiplier;
+  const int migration_mode;
+  const int migration_max_bs;
 };
 }  // namespace hyrise

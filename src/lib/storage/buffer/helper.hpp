@@ -112,10 +112,12 @@ using EvictionQueue = tbb::concurrent_queue<EvictionItem>;
 // Promotion queue for deferred batch promotion (NUMA -> DRAM)
 using PromotionQueue = tbb::concurrent_queue<PageID>;
 
-// Minimum number of pages to promote in a batch operation
+// Default minimum number of pages to promote in a batch operation.
+// NOTE: This compile-time default can be overridden by runtime config (min_promotion_batch_size in JSON).
 constexpr size_t MIN_PROMOTION_BATCH_SIZE = 32;
 
-// Maximum queue items to scan when collecting pages for batch promotion
+// Default maximum queue items to scan when collecting pages for batch promotion.
+// NOTE: This compile-time default can be overridden by runtime config (max_promotion_queue_scan_multiplier in JSON).
 constexpr size_t MAX_PROMOTION_QUEUE_SCAN_MULTIPLIER = 16;
 
 // Enable or or disable mprotect calls for debugging purposes
@@ -123,18 +125,20 @@ constexpr bool ENABLE_MPROTECT = false;
 
 constexpr size_t MAX_EVICTION_QUEUE_PURGES = 1024;
 
-// Minimum number of pages to evict in a batch operation.
+// Default minimum number of pages to demote (evict) in a batch operation.
 // Even if we only need 1 page worth of bytes, we evict this many to:
 // 1. Amortize syscall overhead (move_pages, mprotect)
 // 2. Keep buffer pool from filling up immediately again
 // 3. Reduce eviction frequency
 // Note: In hot workloads (100% cache hit), queue may not have this many evictable pages
+// NOTE: This compile-time default can be overridden by runtime config (min_demotion_batch_size in JSON).
 constexpr size_t MIN_BATCH_SIZE = 32;
 
-// Maximum queue items to scan when collecting pages for batch eviction.
+// Default maximum queue items to scan when collecting pages for batch eviction.
 // This allows deeper lookahead to find evictable pages in a hot workload.
 // Formula: max_scans = num_pages_requested * MAX_QUEUE_SCAN_MULTIPLIER
 // Example: requesting 32 pages with multiplier 16 = scan up to 512 queue items
+// NOTE: This compile-time default can be overridden by runtime config (max_demotion_queue_scan_multiplier in JSON).
 constexpr size_t MAX_QUEUE_SCAN_MULTIPLIER = 16;
 
 constexpr size_t DEFAULT_RESERVED_VIRTUAL_MEMORY = 1UL << 38;  // 256 GiB

@@ -24,3 +24,5 @@ NOTES
    - Requires code recompilation after config change
 
 ================================================================================
+echo "vm.max_map_count=2000000" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p

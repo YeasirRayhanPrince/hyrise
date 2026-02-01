@@ -52,6 +52,24 @@ class BufferManager : public boost::container::pmr::memory_resource, public Nonc
     // When false, uses standard Linux move_pages(2). When true, uses optimized custom implementation.
     bool use_custom_syscall = false;
 
+    // Minimum number of pages to demote (evict) in a batch operation (default: 32)
+    std::size_t min_demotion_batch_size = 32;
+
+    // Minimum number of pages to promote in a batch operation (default: 32)
+    std::size_t min_promotion_batch_size = 32;
+
+    // Maximum queue items to scan as multiplier of batch size for demotion (default: 16)
+    std::size_t max_demotion_queue_scan_multiplier = 16;
+
+    // Maximum queue items to scan as multiplier of batch size for promotion (default: 16)
+    std::size_t max_promotion_queue_scan_multiplier = 16;
+
+    // Migration mode for custom syscall (default: 0)
+    int migration_mode = 0;
+
+    // Maximum batch size for custom syscall migration (default: 32)
+    int migration_max_bs = 32;
+
     // Load the configuration from the environment
     static Config from_env();
 

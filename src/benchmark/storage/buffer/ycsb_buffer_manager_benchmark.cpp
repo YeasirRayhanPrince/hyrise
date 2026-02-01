@@ -43,7 +43,11 @@ class YCSBBufferManagerFixture : public benchmark::Fixture {
       auto config = BufferManager::Config::from_env();
       config.cpu_node = NodeID{0};
       config.memory_node = NodeID{1};
-      config.migration_policy = policy;
+      // Only override migration_policy if NOT using CustomMigrationPolicy.
+      // CustomMigrationPolicy uses the ratios from the JSON config file.
+      if constexpr (policy != CustomMigrationPolicy) {
+        config.migration_policy = policy;
+      }
       config.enable_numa = (policy != DramOnlyMigrationPolicy);
 
       Hyrise::get().buffer_manager = BufferManager(config);
@@ -100,5 +104,9 @@ CONFIGURE_BENCHMARK(Scan, DramOnlyMigrationPolicy)
 CONFIGURE_BENCHMARK(UpdateHeavy, NumaOnlyMigrationPolicy)
 CONFIGURE_BENCHMARK(ReadMostly, NumaOnlyMigrationPolicy)
 CONFIGURE_BENCHMARK(Scan, NumaOnlyMigrationPolicy)
+
+CONFIGURE_BENCHMARK(UpdateHeavy, CustomMigrationPolicy)
+CONFIGURE_BENCHMARK(ReadMostly, CustomMigrationPolicy)
+CONFIGURE_BENCHMARK(Scan, CustomMigrationPolicy)
 
 }  // namespace hyrise

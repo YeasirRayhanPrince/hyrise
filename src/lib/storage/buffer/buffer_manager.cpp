@@ -57,6 +57,12 @@ BufferManager::Config BufferManager::Config::from_env() {
     config.enable_batch_eviction = json.value("enable_batch_eviction", config.enable_batch_eviction);
     config.enable_batch_promotion = json.value("enable_batch_promotion", config.enable_batch_promotion);
     config.use_custom_syscall = json.value("use_custom_syscall", config.use_custom_syscall);
+    config.min_demotion_batch_size = json.value("min_demotion_batch_size", config.min_demotion_batch_size);
+    config.min_promotion_batch_size = json.value("min_promotion_batch_size", config.min_promotion_batch_size);
+    config.max_demotion_queue_scan_multiplier = json.value("max_demotion_queue_scan_multiplier", config.max_demotion_queue_scan_multiplier);
+    config.max_promotion_queue_scan_multiplier = json.value("max_promotion_queue_scan_multiplier", config.max_promotion_queue_scan_multiplier);
+    config.migration_mode = json.value("migration_mode", config.migration_mode);
+    config.migration_max_bs = json.value("migration_max_bs", config.migration_max_bs);
 
     return config;
   } else {
@@ -78,6 +84,12 @@ nlohmann::json BufferManager::Config::to_json() const {
   json["enable_batch_eviction"] = enable_batch_eviction;
   json["enable_batch_promotion"] = enable_batch_promotion;
   json["use_custom_syscall"] = use_custom_syscall;
+  json["min_demotion_batch_size"] = min_demotion_batch_size;
+  json["min_promotion_batch_size"] = min_promotion_batch_size;
+  json["max_demotion_queue_scan_multiplier"] = max_demotion_queue_scan_multiplier;
+  json["max_promotion_queue_scan_multiplier"] = max_promotion_queue_scan_multiplier;
+  json["migration_mode"] = migration_mode;
+  json["migration_max_bs"] = migration_max_bs;
   return json;
 }
 
@@ -97,11 +109,17 @@ BufferManager::BufferManager(const Config config)
                                                         config.enable_eviction_purge_worker, _volatile_regions,
                                                         config.migration_policy, _ssd_region, _secondary_buffer_pool,
                                                         config.cpu_node, _metrics->dram_buffer_pool_metrics,
-                                                        config.enable_batch_eviction, config.use_custom_syscall)),
+                                                        config.enable_batch_eviction, config.use_custom_syscall,
+                                                        config.min_demotion_batch_size, config.min_promotion_batch_size,
+                                                        config.max_demotion_queue_scan_multiplier, config.max_promotion_queue_scan_multiplier,
+                                                        config.migration_mode, config.migration_max_bs)),
       _secondary_buffer_pool(std::make_shared<BufferPool>(
           config.enable_numa, config.numa_buffer_pool_size, config.enable_eviction_purge_worker, _volatile_regions,
           config.migration_policy, _ssd_region, nullptr, config.memory_node, _metrics->numa_buffer_pool_metrics,
-          config.enable_batch_eviction, config.use_custom_syscall)) {
+          config.enable_batch_eviction, config.use_custom_syscall,
+          config.min_demotion_batch_size, config.min_promotion_batch_size,
+          config.max_demotion_queue_scan_multiplier, config.max_promotion_queue_scan_multiplier,
+          config.migration_mode, config.migration_max_bs)) {
   Assert(config.cpu_node != config.memory_node, "CPU and memory node must be different");
   
   // Print buffer manager configuration
@@ -118,6 +136,15 @@ BufferManager::BufferManager(const Config config)
   std::cout << "  DRAM write ratio: " << config.migration_policy._dram_write_ratio << std::endl;
   std::cout << "  NUMA read ratio: " << config.migration_policy._numa_read_ratio << std::endl;
   std::cout << "  NUMA write ratio: " << config.migration_policy._numa_write_ratio << std::endl;
+  std::cout << "Batch settings:" << std::endl;
+  std::cout << "  Min demotion batch size: " << config.min_demotion_batch_size << std::endl;
+  std::cout << "  Min promotion batch size: " << config.min_promotion_batch_size << std::endl;
+  std::cout << "  Max demotion queue scan multiplier: " << config.max_demotion_queue_scan_multiplier << std::endl;
+  std::cout << "  Max promotion queue scan multiplier: " << config.max_promotion_queue_scan_multiplier << std::endl;
+  std::cout << "Custom syscall settings:" << std::endl;
+  std::cout << "  Use custom syscall: " << (config.use_custom_syscall ? "true" : "false") << std::endl;
+  std::cout << "  Migration mode: " << config.migration_mode << std::endl;
+  std::cout << "  Migration max batch size: " << config.migration_max_bs << std::endl;
   std::cout << "=====================================\n" << std::endl;
 }
 

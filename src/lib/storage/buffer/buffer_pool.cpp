@@ -11,7 +11,10 @@ BufferPool::BufferPool(const bool enabled, const size_t pool_size, const bool en
                        MigrationPolicy migration_policy, std::shared_ptr<SSDRegion> ssd_region,
                        std::shared_ptr<BufferPool> target_buffer_pool, const NodeID numa_node,
                        std::shared_ptr<BufferPoolMetrics> metrics, const bool enable_batch_eviction,
-                       const bool use_custom_syscall)
+                       const bool use_custom_syscall, const size_t min_demotion_batch_size,
+                       const size_t min_promotion_batch_size, const size_t max_demotion_queue_scan_multiplier,
+                       const size_t max_promotion_queue_scan_multiplier, const int migration_mode,
+                       const int migration_max_bs)
     : max_bytes(pool_size),
       used_bytes(0),
       metrics(metrics),
@@ -25,6 +28,12 @@ BufferPool::BufferPool(const bool enabled, const size_t pool_size, const bool en
       migration_policy(migration_policy),
       enable_batch_eviction(enable_batch_eviction),
       use_custom_syscall(use_custom_syscall),
+      min_demotion_batch_size(min_demotion_batch_size),
+      min_promotion_batch_size(min_promotion_batch_size),
+      max_demotion_queue_scan_multiplier(max_demotion_queue_scan_multiplier),
+      max_promotion_queue_scan_multiplier(max_promotion_queue_scan_multiplier),
+      migration_mode(migration_mode),
+      migration_max_bs(migration_max_bs),
       eviction_purge_worker(enable_eviction_purge_worker
                                 ? std::make_unique<PausableLoopThread>(IDLE_EVICTION_QUEUE_PURGE,
                                                                        [&](size_t) { this->purge_eviction_queue(); })
@@ -83,7 +92,7 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
       
       // Calculate pages needed based on bytes, but enforce minimum batch size
       const auto pages_from_bytes = (bytes_needed + min_page_bytes - 1) / min_page_bytes;
-      const auto pages_to_evict = std::max(MIN_BATCH_SIZE, pages_from_bytes);
+      const auto pages_to_evict = std::max(min_demotion_batch_size, pages_from_bytes);
 
       const auto evicted = evict_batch(pages_to_evict, &freed_bytes);
       // std::cout << "[BufferPool] Batch eviction: requested=" << pages_to_evict
@@ -214,7 +223,7 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
   // Calculate maximum queue items to scan (lookahead depth)
   // In hot workloads, most queue entries are stale (already re-pinned),
   // so we need to scan deeper to find truly evictable pages
-  const size_t max_queue_scans = num_pages_to_evict * MAX_QUEUE_SCAN_MULTIPLIER;
+  const size_t max_queue_scans = num_pages_to_evict * max_demotion_queue_scan_multiplier;
 
   // Phase 1: Collect and lock pages
   // Continue scanning until we either:
@@ -325,7 +334,8 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
       }
 
       // Perform batch migration using move_pages
-      region->move_pages_to_numa_node_batch(page_ids_to_migrate, target_buffer_pool->node_id);
+      region->move_pages_to_numa_node_batch(page_ids_to_migrate, target_buffer_pool->node_id,
+                                            use_custom_syscall, migration_mode, migration_max_bs);
 
       // Unlock all frames and add to target pool's eviction queue
       for (const auto& item : items) {
@@ -365,10 +375,10 @@ size_t BufferPool::promote_batch(NodeID target_node_id) {
   size_t queue_items_scanned = 0;
   
   // Calculate maximum queue items to scan (lookahead depth)
-  const size_t max_queue_scans = MIN_PROMOTION_BATCH_SIZE * MAX_PROMOTION_QUEUE_SCAN_MULTIPLIER;
+  const size_t max_queue_scans = min_promotion_batch_size * max_promotion_queue_scan_multiplier;
 
   // Phase 1: Collect and lock pages from promotion queue
-  while (pages_collected < MIN_PROMOTION_BATCH_SIZE && queue_items_scanned < max_queue_scans) {
+  while (pages_collected < min_promotion_batch_size && queue_items_scanned < max_queue_scans) {
     if (!promotion_queue->try_pop(page_id)) {
       break;  // No more items in queue
     }
@@ -421,7 +431,8 @@ size_t BufferPool::promote_batch(NodeID target_node_id) {
     auto region = volatile_regions[static_cast<uint64_t>(size_type)];
     
     // Perform batch migration using move_pages
-    region->move_pages_to_numa_node_batch(page_ids, target_node_id);
+    region->move_pages_to_numa_node_batch(page_ids, target_node_id,
+                                          use_custom_syscall, migration_mode, migration_max_bs);
 
     // Unlock all frames after migration
     for (const auto& pid : page_ids) {

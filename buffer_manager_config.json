@@ -9,10 +9,16 @@
   "enable_batch_eviction": true,
   "enable_batch_promotion": true,
   "use_custom_syscall": false,
+  "min_demotion_batch_size": 64,
+  "min_promotion_batch_size": 64,
+  "max_demotion_queue_scan_multiplier": 16,
+  "max_promotion_queue_scan_multiplier": 16,
+  "migration_mode": 0,
+  "migration_max_bs": 32,
   "migration_policy": {
-    "dram_read_ratio": 0.7,
-    "dram_write_ratio": 0.7,
-    "numa_read_ratio": 0.3,
-    "numa_write_ratio": 0.3
+    "dram_read_ratio": 0.5,
+    "dram_write_ratio": 0.5,
+    "numa_read_ratio": 0.5,
+    "numa_write_ratio": 0.5
   }
 }

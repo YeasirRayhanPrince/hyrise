@@ -32,7 +32,9 @@ class VolatileRegion : public Noncopyable {
   void move_page_to_numa_node(PageID page_id, const NodeID target_memory_node);
   
   // Batch migration: move multiple pages to the same NUMA node at once
-  void move_pages_to_numa_node_batch(const std::vector<PageID>& page_ids, const NodeID target_memory_node);
+  // When use_custom_syscall is true, uses custom move_pages2 syscall with migration_mode and migration_max_bs
+  void move_pages_to_numa_node_batch(const std::vector<PageID>& page_ids, const NodeID target_memory_node,
+                                     bool use_custom_syscall = false, int migration_mode = 0, int migration_max_bs = 32);
 
   void free(PageID page_id);
 
