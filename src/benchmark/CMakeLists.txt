@@ -138,6 +138,7 @@ add_executable(
     storage/buffer/buffer_benchmark_utils.hpp
     storage/buffer/allocation_benchmark.cpp
     storage/buffer/ycsb_buffer_manager_benchmark.cpp
+    storage/buffer/tpcc_buffer_manager_benchmark.cpp
 )
 
 if (NOT APPLE)
@@ -148,6 +149,7 @@ target_link_libraries(
     hyriseBenchmarkBufferManager
 
     hyrise
+    hyriseBenchmarkLib
     hdr_histogram
     benchmark::benchmark
 )

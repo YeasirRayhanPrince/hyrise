@@ -26,3 +26,7 @@ NOTES
 ================================================================================
 echo "vm.max_map_count=2000000" | sudo tee -a /etc/sysctl.conf
 sudo sysctl -p
+
+
+// "dram_buffer_pool_size": 2147483648,
+  // "numa_buffer_pool_size": 10737418240,
