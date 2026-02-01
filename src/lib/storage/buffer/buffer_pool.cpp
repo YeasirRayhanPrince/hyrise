@@ -18,14 +18,18 @@ BufferPool::BufferPool(const bool enabled, const size_t pool_size, const bool en
     : max_bytes(pool_size),
       used_bytes(0),
       metrics(metrics),
-      enabled(enabled),
-      volatile_regions(volatile_regions),
-      eviction_queue(std::make_unique<EvictionQueue>()),
-      promotion_queue(std::make_unique<PromotionQueue>()),
-      node_id(numa_node),
       ssd_region(ssd_region),
       target_buffer_pool(target_buffer_pool),
+      eviction_queue(std::make_unique<EvictionQueue>()),
+      promotion_queue(std::make_unique<PromotionQueue>()),
+      eviction_purge_worker(enable_eviction_purge_worker
+                                ? std::make_unique<PausableLoopThread>(IDLE_EVICTION_QUEUE_PURGE,
+                                                                       [&](size_t) { this->purge_eviction_queue(); })
+                                : nullptr),
       migration_policy(migration_policy),
+      volatile_regions(volatile_regions),
+      node_id(numa_node),
+      enabled(enabled),
       enable_batch_eviction(enable_batch_eviction),
       use_custom_syscall(use_custom_syscall),
       min_demotion_batch_size(min_demotion_batch_size),
@@ -33,11 +37,7 @@ BufferPool::BufferPool(const bool enabled, const size_t pool_size, const bool en
       max_demotion_queue_scan_multiplier(max_demotion_queue_scan_multiplier),
       max_promotion_queue_scan_multiplier(max_promotion_queue_scan_multiplier),
       migration_mode(migration_mode),
-      migration_max_bs(migration_max_bs),
-      eviction_purge_worker(enable_eviction_purge_worker
-                                ? std::make_unique<PausableLoopThread>(IDLE_EVICTION_QUEUE_PURGE,
-                                                                       [&](size_t) { this->purge_eviction_queue(); })
-                                : nullptr) {}
+      migration_max_bs(migration_max_bs) {}
 
 void BufferPool::purge_eviction_queue() {
   auto item = EvictionItem{};

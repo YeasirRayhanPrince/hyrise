@@ -245,7 +245,7 @@ inline YCSBOperations generate_ycsb_operations(const size_t num_keys, const floa
   std::iota(shuffled_keys.begin(), shuffled_keys.end(), 0);
   auto rng = std::default_random_engine{};
   std::shuffle(std::begin(shuffled_keys), std::end(shuffled_keys), rng);
-  for (auto i = 0; i < NumOperations; i++) {
+  for (size_t i = 0; i < NumOperations; i++) {
     auto key_idx = key_distribution(generator);
     auto key = shuffled_keys[key_idx];
     if constexpr (workload == YCSBWorkload::UpdateHeavy) {

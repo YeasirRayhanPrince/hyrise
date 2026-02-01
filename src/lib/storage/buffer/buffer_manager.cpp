@@ -103,9 +103,16 @@ BufferManager::BufferManager() : BufferManager(Config::from_env()) {}
 BufferManager::BufferManager(const Config config)
     : _config(config),
       _mapped_region(create_mapped_region()),
+      _metrics(std::make_shared<BufferManagerMetrics>()),
       _volatile_regions(create_volatile_regions(_mapped_region, _metrics)),
       _ssd_region(std::make_shared<SSDRegion>(config.ssd_path, _metrics)),  // TODO: imprive init of pools here
-      _metrics(std::make_shared<BufferManagerMetrics>()),
+      _secondary_buffer_pool(std::make_shared<BufferPool>(
+          config.enable_numa, config.numa_buffer_pool_size, config.enable_eviction_purge_worker, _volatile_regions,
+          config.migration_policy, _ssd_region, nullptr, config.memory_node, _metrics->numa_buffer_pool_metrics,
+          config.enable_batch_eviction, config.use_custom_syscall,
+          config.min_demotion_batch_size, config.min_promotion_batch_size,
+          config.max_demotion_queue_scan_multiplier, config.max_promotion_queue_scan_multiplier,
+          config.migration_mode, config.migration_max_bs)),
       _primary_buffer_pool(std::make_shared<BufferPool>(true, config.dram_buffer_pool_size,
                                                         config.enable_eviction_purge_worker, _volatile_regions,
                                                         config.migration_policy, _ssd_region, _secondary_buffer_pool,
@@ -113,14 +120,7 @@ BufferManager::BufferManager(const Config config)
                                                         config.enable_batch_eviction, config.use_custom_syscall,
                                                         config.min_demotion_batch_size, config.min_promotion_batch_size,
                                                         config.max_demotion_queue_scan_multiplier, config.max_promotion_queue_scan_multiplier,
-                                                        config.migration_mode, config.migration_max_bs)),
-      _secondary_buffer_pool(std::make_shared<BufferPool>(
-          config.enable_numa, config.numa_buffer_pool_size, config.enable_eviction_purge_worker, _volatile_regions,
-          config.migration_policy, _ssd_region, nullptr, config.memory_node, _metrics->numa_buffer_pool_metrics,
-          config.enable_batch_eviction, config.use_custom_syscall,
-          config.min_demotion_batch_size, config.min_promotion_batch_size,
-          config.max_demotion_queue_scan_multiplier, config.max_promotion_queue_scan_multiplier,
-          config.migration_mode, config.migration_max_bs)) {
+                                                        config.migration_mode, config.migration_max_bs)) {
   Assert(config.cpu_node != config.memory_node, "CPU and memory node must be different");
   
   // Print buffer manager configuration
@@ -217,7 +217,7 @@ void BufferManager::make_resident(const PageID page_id, const AccessIntent acces
   // TODO: retake the desiscion here if something
   // TODO: What happens for the allocate case? Inpret allocate as a write regarding mig policy -> new method for pin
   // Check if the page was freshly allocated by checking the version. In this case, we want to use either DRAM or NUMA
-  const auto version = Frame::version(state_before_exclusive);
+  // const auto version = Frame::version(state_before_exclusive);  // Unused in release builds
   const auto is_evicted = Frame::state(state_before_exclusive) == Frame::EVICTED;
 
   // Case 1: The page is already on DRAM. This is the easy case.
@@ -471,7 +471,7 @@ PageID BufferManager::find_page(const void* ptr) const {
       bytes_for_size_type(MIN_PAGE_SIZE_TYPE) * (1 << region_idx);  // TODO: this might break if not exponential sizes
   const auto region_offset = offset % DEFAULT_RESERVED_VIRTUAL_MEMORY_PER_REGION;
   const auto page_idx = region_offset / page_size;
-  const auto valid = region_idx < NUM_PAGE_SIZE_TYPES && region_idx >= 0;
+  const auto valid = region_idx < NUM_PAGE_SIZE_TYPES;  // No need to check >= 0 for unsigned type
   const auto size_type = valid ? magic_enum::enum_value<PageSizeType>(region_idx) : MIN_PAGE_SIZE_TYPE;
   return PageID{size_type, static_cast<PageID::PageIDType>(page_idx), valid};
 }
@@ -488,8 +488,8 @@ void BufferManager::add_to_eviction_queue(const PageID page_id, Frame* frame) {
 }
 
 void* BufferManager::do_allocate(std::size_t bytes, std::size_t alignment) {
-  static const bool log_allocations = std::getenv("HYRISE_LOG_BUFFER_MANAGER_ALLOC") != nullptr;
-  static std::atomic<uint64_t> allocation_log_counter{0};
+  // static const bool log_allocations = std::getenv("HYRISE_LOG_BUFFER_MANAGER_ALLOC") != nullptr;
+  // static std::atomic<uint64_t> allocation_log_counter{0};
   const auto size_type = find_fitting_page_size_type(bytes);
 
   auto region = _volatile_regions[static_cast<uint64_t>(size_type)];
@@ -498,16 +498,16 @@ void* BufferManager::do_allocate(std::size_t bytes, std::size_t alignment) {
   increment_counter(_metrics->num_allocs);
   increment_counter(_metrics->total_allocated_bytes, bytes_for_size_type(size_type));
 
-  if (log_allocations) {
-    const auto current = allocation_log_counter.fetch_add(1, std::memory_order_relaxed);
-    if (current < 10 || current % 10000 == 0) {
-      std::cout << "[BM alloc] bytes=" << bytes
-                << " size_type=" << static_cast<int>(size_type)
-                << " page_id=" << page_id
-                << " ptr=" << ptr
-                << std::endl;
-    }
-  }
+  // if (log_allocations) {
+  //   const auto current = allocation_log_counter.fetch_add(1, std::memory_order_relaxed);
+  //   if (current < 10 || current % 10000 == 0) {
+  //     std::cout << "[BM alloc] bytes=" << bytes
+  //               << " size_type=" << static_cast<int>(size_type)
+  //               << " page_id=" << page_id
+  //               << " ptr=" << ptr
+  //               << std::endl;
+  //   }
+  // }
 
   auto state_and_version = frame->state_and_version();
   if (!frame->try_lock_exclusive(state_and_version)) {

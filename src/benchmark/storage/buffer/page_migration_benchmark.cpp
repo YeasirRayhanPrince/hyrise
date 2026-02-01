@@ -46,13 +46,13 @@ BENCHMARK_DEFINE_F(PageMigrationFixture, BM_ToNodeMemory)(benchmark::State& stat
     explicit_move_pages(_mapped_region, VIRT_SIZE, 0);
 #endif
     state.ResumeTiming();
-    for (int idx = 0; idx < NUM_OPS; ++idx) {
+    for (size_t idx = 0; idx < NUM_OPS; ++idx) {
 #if HYRISE_NUMA_SUPPORT
       const auto timer_start = std::chrono::high_resolution_clock::now();
 
       explicit_move_pages(_mapped_region + idx * num_bytes, num_bytes, target_node);
       const auto timer_end = std::chrono::high_resolution_clock::now();
-      const auto latency = std::chrono::duration_cast<std::chrono::nanoseconds>(timer_end - timer_start).count();
+      [[maybe_unused]] const auto latency = std::chrono::duration_cast<std::chrono::nanoseconds>(timer_end - timer_start).count();
 #endif
     }
     benchmark::ClobberMemory();
@@ -74,7 +74,7 @@ BENCHMARK_DEFINE_F(PageMigrationFixture, BM_ToNodeMemoryLatencyDramToCXL)(benchm
   auto latencies = uint64_t{0};
   for (auto _ : state) {
 #if HYRISE_NUMA_SUPPORT
-    for (int i = 0; i < NUM_OPS; ++i) {
+    for (size_t i = 0; i < NUM_OPS; ++i) {
       const auto timer_start = std::chrono::high_resolution_clock::now();
       explicit_move_pages(_mapped_region + (++i * num_bytes), num_bytes, target_node);
       const auto timer_end = std::chrono::high_resolution_clock::now();
@@ -138,7 +138,7 @@ BENCHMARK_DEFINE_F(PageMigrationFixture, BM_MovePagesLatency)(benchmark::State& 
   auto latencies = uint64_t{0};
   for (auto _ : state) {
 #if HYRISE_NUMA_SUPPORT
-    for (int i = 0; i < NUM_OPS; ++i) {
+    for (size_t i = 0; i < NUM_OPS; ++i) {
       const auto timer_start = std::chrono::high_resolution_clock::now();
       for (std::size_t j = 0; j < pages.size(); ++j) {
         pages[j] = _mapped_region + i * num_bytes + j * OS_PAGE_SIZE;

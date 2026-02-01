@@ -47,7 +47,7 @@ BENCHMARK_DEFINE_F(SkewFixture, BM_Skew)(benchmark::State& state) {
     const auto end = start + operations_per_thread;
     for (auto i = start; i < end; ++i) {
       const auto op = operations[i];
-      const auto timer_start = std::chrono::high_resolution_clock::now();
+      [[maybe_unused]] const auto timer_start = std::chrono::high_resolution_clock::now();
       auto bytes = execute_ycsb_action(table, buffer_manager, op);
       benchmark::DoNotOptimize(bytes);
     }

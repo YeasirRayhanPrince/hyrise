@@ -23,7 +23,7 @@ class JemallocMemoryResource : public boost::container::pmr::memory_resource, pu
   void create_arena();
 };
 
-static boost::container::pmr::memory_resource* get_default_jemalloc_memory_resource() {
+[[maybe_unused]] static boost::container::pmr::memory_resource* get_default_jemalloc_memory_resource() {
   return &JemallocMemoryResource::get();
 }
 }  // namespace hyrise

@@ -31,7 +31,7 @@ void BM_RandomAccess(benchmark::State& state) {
   std::mt19937 gen(rd());
   std::uniform_int_distribution<uint64_t> distribution(0, SIZE_PER_THREAD / CACHE_LINE_SIZE - 1);
 
-  auto start_addr = SIZE_PER_THREAD * state.thread_index();
+  [[maybe_unused]] auto start_addr = SIZE_PER_THREAD * state.thread_index();
 
   for (auto _ : state) {
     for (auto i = 0; i < NUM_OPS_PER_THREAD; ++i) {
