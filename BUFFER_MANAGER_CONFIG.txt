@@ -1,0 +1,26 @@
+================================================================================
+KERNEL TUNING
+================================================================================
+
+vm.max_map_count: 1000000 (increased from default 65530)
+  - Required for allocating large memory regions
+  - Set with: sudo sysctl -w vm.max_map_count=1000000
+  - Current value: 1000000 (sufficient for 12 GB buffer allocation)
+
+================================================================================
+NOTES
+================================================================================
+
+1. The Mbind failure was due to low vm.max_map_count limit
+   - Original value: 65530 (too low for 12GB allocation)
+   - Solution: Increased to 1000000
+
+2. NUMA is available on this system:
+   - 2 NUMA nodes with separate memory
+   - Node 1 has sufficient free memory (121GB) for 10GB pool
+
+3. Batch eviction is currently DISABLED (enable_batching: false)
+   - Can be enabled by setting to true in buffer_manager_config.json
+   - Requires code recompilation after config change
+
+================================================================================

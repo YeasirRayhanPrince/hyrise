@@ -82,7 +82,7 @@ class YCSBBufferManagerFixture : public benchmark::Fixture {
       ->Iterations(1)                                                                                   \
       ->Repetitions(1)                                                                                  \
       ->UseRealTime()                                                                                   \
-      ->DenseRange(1, 8, 1)                                                                             \
+      ->Args({1})->Args({2})->Args({4})->Args({8})->Args({16})->Args({32})->Args({64})->Args({128})->Args({256}) \
       ->Name("BM_ycsb/" #WL "/" #Policy);
 
 CONFIGURE_BENCHMARK(UpdateHeavy, LazyMigrationPolicy)

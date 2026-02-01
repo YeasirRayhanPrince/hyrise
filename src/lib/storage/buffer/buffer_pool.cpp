@@ -91,10 +91,8 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
       if (evicted == 0) {
         consecutive_failures++;
         if (consecutive_failures >= MAX_CONSECUTIVE_FAILURES) {
-          // std::cout << "[BufferPool] Failed to evict after " << MAX_CONSECUTIVE_FAILURES 
-          //           << " attempts, allocation failed" << std::endl;
-          free_bytes(bytes_required);
-          return false;
+          // Batch eviction failed, fall back to single-page eviction
+          break;
         }
         // Give queue time to accumulate more items
         std::this_thread::yield();
@@ -104,9 +102,10 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
       consecutive_failures = 0;  // Reset on success
       current_bytes = used_bytes.load();
     }
-  } else {
-    // Single eviction path (original behavior)
-    std::cout << "[BufferPool] Using single eviction path (batching disabled or small allocation)" << std::endl;
+  }
+  
+  // Fallback to single-page eviction if batching is disabled or failed
+  if (!enable_batching || (current_bytes + bytes_required - freed_bytes) > max_bytes) {
     while ((current_bytes + bytes_required - freed_bytes) > max_bytes) {
       if (!eviction_queue->try_pop(item)) {
         free_bytes(bytes_required);
@@ -262,9 +261,9 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
   }
 
   if (locked_pages.empty()) {
-    std::cout << "[BufferPool::evict_batch] No pages locked for eviction after scanning " 
-              << queue_items_scanned << " queue items (requested=" << num_pages_to_evict 
-              << ", max_scans=" << max_queue_scans << ")" << std::endl;
+    // std::cout << "[BufferPool::evict_batch] No pages locked for eviction after scanning " 
+    //          << queue_items_scanned << " queue items (requested=" << num_pages_to_evict 
+    //          << ", max_scans=" << max_queue_scans << ")" << std::endl;
     return 0;  // No pages to evict
   }
 
@@ -340,6 +339,12 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
         evicted_count++;
       }
     }
+  }
+
+  // Update batch metrics
+  if (evicted_count > 0) {
+    metrics->num_batch_evictions.fetch_add(1, std::memory_order_relaxed);
+    metrics->total_pages_batched.fetch_add(evicted_count, std::memory_order_relaxed);
   }
 
   return evicted_count;

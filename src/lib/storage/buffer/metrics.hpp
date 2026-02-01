@@ -9,6 +9,17 @@ struct BufferPoolMetrics {
   std::atomic_uint64_t num_eviction_queue_adds = 0;
   std::atomic_uint64_t num_evictions;
   std::atomic_uint64_t total_bytes_copied_to_ssd = 0;
+  
+  // Batch eviction metrics
+  std::atomic_uint64_t num_batch_evictions = 0;        // Number of batch eviction calls
+  std::atomic_uint64_t total_pages_batched = 0;        // Total pages evicted via batching
+  
+  double avg_batch_size() const {
+    if (num_batch_evictions == 0) {
+      return 0.0;
+    }
+    return static_cast<double>(total_pages_batched) / static_cast<double>(num_batch_evictions);
+  }
 };
 
 // TODO: Add

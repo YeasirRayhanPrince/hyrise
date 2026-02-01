@@ -101,9 +101,37 @@ BufferManager::BufferManager(const Config config)
           config.migration_policy, _ssd_region, nullptr, config.memory_node, _metrics->numa_buffer_pool_metrics,
           config.enable_batching, config.use_custom_syscall)) {
   Assert(config.cpu_node != config.memory_node, "CPU and memory node must be different");
+  
+  // Print buffer manager configuration
+  std::cout << "\n=== Buffer Manager Configuration ===" << std::endl;
+  std::cout << "DRAM pool size: " << (config.dram_buffer_pool_size / (1024.0 * 1024.0)) << " MB" << std::endl;
+  std::cout << "NUMA pool size: " << (config.numa_buffer_pool_size / (1024.0 * 1024.0)) << " MB" << std::endl;
+  std::cout << "NUMA enabled: " << (config.enable_numa ? "true" : "false") << std::endl;
+  std::cout << "Batching enabled: " << (config.enable_batching ? "true" : "false") << std::endl;
+  std::cout << "CPU node: " << static_cast<int>(config.cpu_node) << std::endl;
+  std::cout << "Memory node: " << static_cast<int>(config.memory_node) << std::endl;
+  std::cout << "Migration policy:" << std::endl;
+  std::cout << "  DRAM read ratio: " << config.migration_policy._dram_read_ratio << std::endl;
+  std::cout << "  DRAM write ratio: " << config.migration_policy._dram_write_ratio << std::endl;
+  std::cout << "  NUMA read ratio: " << config.migration_policy._numa_read_ratio << std::endl;
+  std::cout << "  NUMA write ratio: " << config.migration_policy._numa_write_ratio << std::endl;
+  std::cout << "=====================================\n" << std::endl;
 }
 
 BufferManager::~BufferManager() {
+  // Print batch eviction statistics
+  std::cout << "\n=== Batch Eviction Statistics ===" << std::endl;
+  std::cout << "DRAM Pool:" << std::endl;
+  std::cout << "  Total batch evictions: " << _metrics->dram_buffer_pool_metrics->num_batch_evictions.load() << std::endl;
+  std::cout << "  Total pages batched: " << _metrics->dram_buffer_pool_metrics->total_pages_batched.load() << std::endl;
+  std::cout << "  Average batch size: " << _metrics->dram_buffer_pool_metrics->avg_batch_size() << std::endl;
+  
+  std::cout << "NUMA Pool:" << std::endl;
+  std::cout << "  Total batch evictions: " << _metrics->numa_buffer_pool_metrics->num_batch_evictions.load() << std::endl;
+  std::cout << "  Total pages batched: " << _metrics->numa_buffer_pool_metrics->total_pages_batched.load() << std::endl;
+  std::cout << "  Average batch size: " << _metrics->numa_buffer_pool_metrics->avg_batch_size() << std::endl;
+  std::cout << "=================================\n" << std::endl;
+  
   unmap_region(_mapped_region);
 }
 
