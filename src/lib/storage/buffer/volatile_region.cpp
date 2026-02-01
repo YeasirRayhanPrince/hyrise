@@ -72,22 +72,22 @@ void VolatileRegion::mbind_to_numa_node(PageID page_id, const NodeID target_memo
 
   const auto num_bytes = bytes_for_size_type(_size_type);
   
-  // Debug: Count current memory mappings
-  static std::atomic<size_t> mbind_call_count{0};
-  auto call_num = mbind_call_count.fetch_add(1, std::memory_order_relaxed);
+  // // Debug: Count current memory mappings
+  // static std::atomic<size_t> mbind_call_count{0};
+  // auto call_num = mbind_call_count.fetch_add(1, std::memory_order_relaxed);
   
-  // Log every 10000 calls to avoid too much output
-  if (call_num % 10000 == 0) {
-    std::ifstream maps_file("/proc/self/maps");
-    size_t map_count = std::count(std::istreambuf_iterator<char>(maps_file),
-                                   std::istreambuf_iterator<char>(), '\n');
-    std::cerr << "[DEBUG mbind] call_num=" << call_num 
-              << " page_id=" << page_id.index 
-              << " size_type=" << static_cast<int>(_size_type)
-              << " num_bytes=" << num_bytes 
-              << " target_node=" << target_memory_node 
-              << " current_map_count=" << map_count << std::endl;
-  }
+  // // Log every 10000 calls to avoid too much output
+  // if (call_num % 10000 == 0) {
+  //   std::ifstream maps_file("/proc/self/maps");
+  //   size_t map_count = std::count(std::istreambuf_iterator<char>(maps_file),
+  //                                  std::istreambuf_iterator<char>(), '\n');
+  //   std::cerr << "[DEBUG mbind] call_num=" << call_num 
+  //             << " page_id=" << page_id.index 
+  //             << " size_type=" << static_cast<int>(_size_type)
+  //             << " num_bytes=" << num_bytes 
+  //             << " target_node=" << target_memory_node 
+  //             << " current_map_count=" << map_count << std::endl;
+  // }
   
   auto nodes = numa_allocate_nodemask();
   numa_bitmask_setbit(nodes, target_memory_node);
@@ -95,14 +95,14 @@ void VolatileRegion::mbind_to_numa_node(PageID page_id, const NodeID target_memo
             MPOL_MF_MOVE | MPOL_MF_STRICT) != 0) {
     const auto error = errno;
     
-    // Debug: Log failure details
-    std::ifstream maps_file("/proc/self/maps");
-    size_t map_count = std::count(std::istreambuf_iterator<char>(maps_file),
-                                   std::istreambuf_iterator<char>(), '\n');
-    std::cerr << "[DEBUG mbind] FAILED! call_num=" << call_num
-              << " page_id=" << page_id.index 
-              << " errno=" << error << " (" << strerror(error) << ")"
-              << " map_count=" << map_count << std::endl;
+    // // Debug: Log failure details
+    // std::ifstream maps_file("/proc/self/maps");
+    // size_t map_count = std::count(std::istreambuf_iterator<char>(maps_file),
+    //                                std::istreambuf_iterator<char>(), '\n');
+    // std::cerr << "[DEBUG mbind] FAILED! call_num=" << call_num
+    //           << " page_id=" << page_id.index 
+    //           << " errno=" << error << " (" << strerror(error) << ")"
+    //           << " map_count=" << map_count << std::endl;
     
     numa_bitmask_free(nodes);
     Fail("Mbind failed: " + std::string(strerror(error)) +
