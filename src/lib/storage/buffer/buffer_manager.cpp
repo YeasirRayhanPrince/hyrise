@@ -64,6 +64,7 @@ BufferManager::Config BufferManager::Config::from_env() {
     config.max_promotion_queue_scan_multiplier = json.value("max_promotion_queue_scan_multiplier", config.max_promotion_queue_scan_multiplier);
     config.migration_mode = json.value("migration_mode", config.migration_mode);
     config.migration_max_bs = json.value("migration_max_bs", config.migration_max_bs);
+    config.loader_threads = json.value("loader_threads", config.loader_threads);
 
     return config;
   } else {
@@ -91,6 +92,7 @@ nlohmann::json BufferManager::Config::to_json() const {
   json["max_promotion_queue_scan_multiplier"] = max_promotion_queue_scan_multiplier;
   json["migration_mode"] = migration_mode;
   json["migration_max_bs"] = migration_max_bs;
+  json["loader_threads"] = loader_threads;
   return json;
 }
 

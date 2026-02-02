@@ -1,4 +1,7 @@
+#include <atomic>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <vector>
 
@@ -39,24 +42,40 @@ class YCSBBufferManagerFixture : public benchmark::Fixture {
   uint64_t operations_per_thread;
 
   void SetUp(const ::benchmark::State& state) {
+    static std::mutex load_mutex;
+    static std::condition_variable load_cv;
+    static std::atomic<bool> load_started{false};
+    static std::atomic<bool> load_complete{false};
+
     if (state.thread_index() == 0) {
-      auto config = BufferManager::Config::from_env();
-      config.cpu_node = NodeID{0};
-      config.memory_node = NodeID{1};
-      // Only override migration_policy if NOT using CustomMigrationPolicy.
-      // CustomMigrationPolicy uses the ratios from the JSON config file.
-      if constexpr (policy != CustomMigrationPolicy) {
-        config.migration_policy = policy;
+      auto expected = false;
+      if (load_started.compare_exchange_strong(expected, true)) {
+        auto config = BufferManager::Config::from_env();
+        config.cpu_node = NodeID{0};
+        config.memory_node = NodeID{1};
+        // Only override migration_policy if NOT using CustomMigrationPolicy.
+        // CustomMigrationPolicy uses the ratios from the JSON config file.
+        if constexpr (policy != CustomMigrationPolicy) {
+          config.migration_policy = policy;
+        }
+        config.enable_numa = (policy != DramOnlyMigrationPolicy);
+
+        Hyrise::get().buffer_manager = BufferManager(config);
+
+        auto database_size = state.range(0) * GB;
+        table = generate_ycsb_table_parallel(&buffer_manager, database_size, config.loader_threads);
+        operations = generate_ycsb_operations<WL, NUM_OPERATIONS>(table.size(), 0.9);
+        operations_per_thread = operations.size() / state.threads();
+        init_histogram(&latency_histogram);
+        load_complete.store(true, std::memory_order_release);
+        load_cv.notify_all();
+      } else {
+        std::unique_lock<std::mutex> lock(load_mutex);
+        load_cv.wait(lock, [&]() { return load_complete.load(std::memory_order_acquire); });
       }
-      config.enable_numa = (policy != DramOnlyMigrationPolicy);
-
-      Hyrise::get().buffer_manager = BufferManager(config);
-
-      auto database_size = state.range(0) * GB;
-      table = generate_ycsb_table(&buffer_manager, database_size);
-      operations = generate_ycsb_operations<WL, NUM_OPERATIONS>(table.size(), 0.9);
-      operations_per_thread = operations.size() / state.threads();
-      init_histogram(&latency_histogram);
+    } else {
+      std::unique_lock<std::mutex> lock(load_mutex);
+      load_cv.wait(lock, [&]() { return load_complete.load(std::memory_order_acquire); });
     }
   }
 

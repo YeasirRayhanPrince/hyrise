@@ -11,10 +11,17 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <iomanip>
+#include <iostream>
 #include <memory>
+#include <mutex>
 #include <random>
+#include <sstream>
+#include <thread>
 #include <vector>
 #include "benchmark/benchmark.h"
 #include "hdr/hdr_histogram.h"
@@ -208,11 +215,19 @@ using YCSBOperations = std::vector<YSCBOperation>;
 inline YCSBTable generate_ycsb_table(boost::container::pmr::memory_resource* memory_resource,
                                      const size_t database_size) {
   Assert(database_size >= 1 * GB, "Database size must be greater than 1 GB");
+  const auto load_start = std::chrono::high_resolution_clock::now();
+  std::cout << "[YCSB Loader] Starting single-threaded loading. Target size: "
+            << std::fixed << std::setprecision(2) << (database_size / static_cast<double>(GB)) << " GB"
+            << std::endl;
+
   std::mt19937 generator{std::random_device{}()};
   std::uniform_int_distribution<int> distribution(0, magic_enum::enum_count<YCSBTupleSize>() - 1);
   auto table = std::vector<YCSBTuple>{};
   size_t current_size = 0;
   auto& buffer_manager = Hyrise::get().buffer_manager;
+  size_t tuples_loaded = 0;
+  const size_t LOG_INTERVAL = 100000;  // Log every 100k tuples
+
   while (true) {
     auto tuple_size = magic_enum::enum_value<YCSBTupleSize>(distribution(generator));
     auto page_size = bytes_for_size_type(find_fitting_page_size_type(static_cast<size_t>(tuple_size)));
@@ -228,10 +243,111 @@ inline YCSBTable generate_ycsb_table(boost::container::pmr::memory_resource* mem
     // buffer_manager.unpin_exclusive(page_id);
     table.push_back({tuple_size, reinterpret_cast<std::byte*>(ptr)});
     current_size += page_size;
+    tuples_loaded++;
+
+    if (tuples_loaded % LOG_INTERVAL == 0) {
+      std::cout << "  [Single-thread] Loaded " << tuples_loaded << " tuples (~"
+                << std::fixed << std::setprecision(2) << (current_size / static_cast<double>(GB)) << " GB)\n";
+    }
   }
+
+  const auto load_end = std::chrono::high_resolution_clock::now();
+  const auto load_duration = std::chrono::duration<double>(load_end - load_start).count();
+  std::cout << "[YCSB Loader] Single-threaded loading complete. Loaded " << tuples_loaded << " tuples (~"
+            << std::fixed << std::setprecision(2) << (current_size / static_cast<double>(GB)) << " GB) in "
+            << std::fixed << std::setprecision(2) << load_duration << " seconds (~"
+            << std::fixed << std::setprecision(2) << (current_size / static_cast<double>(GB) / load_duration)
+            << " GB/s)" << std::endl;
 
   DebugAssert(current_size <= database_size, "Table size is too small");
   //
+  return table;
+}
+
+inline YCSBTable generate_ycsb_table_parallel(boost::container::pmr::memory_resource* memory_resource,
+                                              const size_t database_size, const size_t loader_threads) {
+  Assert(database_size >= 1 * GB, "Database size must be greater than 1 GB");
+  const auto load_start = std::chrono::high_resolution_clock::now();
+  const auto thread_count = std::max<size_t>(1, loader_threads);
+
+  std::cout << "[YCSB Loader] Starting parallel loading with " << thread_count << " threads. Target size: "
+            << std::fixed << std::setprecision(2) << (database_size / static_cast<double>(GB)) << " GB"
+            << std::endl;
+
+  auto& buffer_manager = Hyrise::get().buffer_manager;
+  std::atomic<size_t> allocated_bytes{0};
+  std::atomic<size_t> tuples_loaded{0};
+  std::vector<YCSBTable> thread_tables(thread_count);
+  std::vector<std::thread> threads;
+  threads.reserve(thread_count);
+  std::mutex logging_mutex;
+  const size_t LOG_INTERVAL = 100000;  // Log every 100k tuples
+
+  for (auto thread_idx = size_t{0}; thread_idx < thread_count; ++thread_idx) {
+    threads.emplace_back([&, thread_idx]() {
+      std::mt19937 generator{std::random_device{}() + static_cast<unsigned>(thread_idx)};
+      std::uniform_int_distribution<int> distribution(0, magic_enum::enum_count<YCSBTupleSize>() - 1);
+      size_t thread_local_tuples = 0;
+
+      while (true) {
+        const auto tuple_size = magic_enum::enum_value<YCSBTupleSize>(distribution(generator));
+        const auto page_size = bytes_for_size_type(find_fitting_page_size_type(static_cast<size_t>(tuple_size)));
+
+        auto current = allocated_bytes.load(std::memory_order_relaxed);
+        while (true) {
+          if (current + page_size > database_size) {
+            return;
+          }
+          if (allocated_bytes.compare_exchange_weak(current, current + page_size, std::memory_order_relaxed)) {
+            break;
+          }
+        }
+
+        auto ptr = memory_resource->allocate(static_cast<size_t>(tuple_size), CACHE_LINE_SIZE);
+        Assert(ptr != nullptr, "Allocation failed");
+        auto page_id = buffer_manager.find_page(ptr);
+        buffer_manager.pin_exclusive(page_id);
+        std::memset(ptr, 0x1, page_size);
+        buffer_manager.set_dirty(page_id);
+        buffer_manager.unpin_exclusive(page_id);
+        thread_tables[thread_idx].push_back({tuple_size, reinterpret_cast<std::byte*>(ptr)});
+        thread_local_tuples++;
+        const auto new_total = tuples_loaded.fetch_add(1, std::memory_order_relaxed) + 1;
+
+        if (new_total % LOG_INTERVAL == 0) {
+          std::lock_guard<std::mutex> lock{logging_mutex};
+          std::cout << "  [Thread " << thread_idx << "] Loaded " << new_total << " total tuples (~"
+                    << std::fixed << std::setprecision(2) << (allocated_bytes.load() / static_cast<double>(GB))
+                    << " GB)" << std::endl;
+        }
+      }
+    });
+  }
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  auto table = YCSBTable{};
+  size_t total_tuples = 0;
+  for (const auto& thread_table : thread_tables) {
+    total_tuples += thread_table.size();
+  }
+  table.reserve(total_tuples);
+  for (auto& thread_table : thread_tables) {
+    table.insert(table.end(), thread_table.begin(), thread_table.end());
+  }
+
+  const auto load_end = std::chrono::high_resolution_clock::now();
+  const auto load_duration = std::chrono::duration<double>(load_end - load_start).count();
+  const auto final_bytes = allocated_bytes.load();
+  std::cout << "[YCSB Loader] Parallel loading complete (" << thread_count << " threads). Loaded " << total_tuples
+            << " tuples (~" << std::fixed << std::setprecision(2) << (final_bytes / static_cast<double>(GB))
+            << " GB) in " << std::fixed << std::setprecision(2) << load_duration << " seconds (~"
+            << std::fixed << std::setprecision(2) << (final_bytes / static_cast<double>(GB) / load_duration)
+            << " GB/s)" << std::endl;
+
+  DebugAssert(final_bytes <= database_size, "Table size is too small");
   return table;
 }
 

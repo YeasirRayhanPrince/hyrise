@@ -70,6 +70,9 @@ class BufferManager : public boost::container::pmr::memory_resource, public Nonc
     // Maximum batch size for custom syscall migration (default: 32)
     int migration_max_bs = 32;
 
+    // Number of threads for parallel YCSB table loading (default: 32)
+    std::size_t loader_threads = 32;
+
     // Load the configuration from the environment
     static Config from_env();
 

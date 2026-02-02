@@ -31,7 +31,7 @@ sudo sysctl -p
 cat /proc/sys/vm/max_map_count
 ================================================================================
 # Compile
-cd /users/yrayhan/hyrise/cmake-build-release && make -j$(nproc)
+cd /users/yrayhan/hyrise/cmake-build-release && make -j$(nproc) hyriseBenchmarkBufferManager
 
 # check benchmark
 /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter=BM_ycsb --benchmark_list_tests
@@ -40,4 +40,4 @@ cd /users/yrayhan/hyrise/cmake-build-release && make -j$(nproc)
 export HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json
 /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/32/iterations:1/repeats:1/real_time/threads:11"
 
-numactl --cpunodebind=0 HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/32/iterations:1/repeats:1/real_time/threads:11"
+numactl --cpunodebind=0 env HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/32/iterations:1/repeats:1/real_time/threads:11"
