@@ -27,8 +27,17 @@ NOTES
 echo "vm.max_map_count=2000000" | sudo tee -a /etc/sysctl.conf
 sudo sysctl -p
 
+# observer current 
+cat /proc/sys/vm/max_map_count
 ================================================================================
+# Compile
+cd /users/yrayhan/hyrise/cmake-build-release && make -j$(nproc)
+
+# check benchmark
 /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter=BM_ycsb --benchmark_list_tests
 
+# run a particular benchmark
 export HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json
-/users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/4/iterations:1/repeats:1/real_time/threads:11"
+/users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/32/iterations:1/repeats:1/real_time/threads:11"
+
+numactl --cpunodebind=0 HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/32/iterations:1/repeats:1/real_time/threads:11"

@@ -141,13 +141,15 @@ constexpr size_t MIN_BATCH_SIZE = 32;
 // NOTE: This compile-time default can be overridden by runtime config (max_demotion_queue_scan_multiplier in JSON).
 constexpr size_t MAX_QUEUE_SCAN_MULTIPLIER = 16;
 
-constexpr size_t DEFAULT_RESERVED_VIRTUAL_MEMORY = 1UL << 38;  // 256 GiB
+// constexpr size_t DEFAULT_RESERVED_VIRTUAL_MEMORY = 1UL << 38;  // 256 GiB (old)
+constexpr size_t DEFAULT_RESERVED_VIRTUAL_MEMORY = 1UL << 40;  // 1 TiB
 
 constexpr size_t DEFAULT_RESERVED_VIRTUAL_MEMORY_PER_REGION = (DEFAULT_RESERVED_VIRTUAL_MEMORY / NUM_PAGE_SIZE_TYPES) /
                                                               bytes_for_size_type(MAX_PAGE_SIZE_TYPE) *
                                                               bytes_for_size_type(MAX_PAGE_SIZE_TYPE);
 
-constexpr size_t INITIAL_SLOTS_PER_REGION = 10000000;  // TODO
+// constexpr size_t INITIAL_SLOTS_PER_REGION = 10000000;  // TODO (old)
+constexpr size_t INITIAL_SLOTS_PER_REGION = 1000000000;  // 1000M slots
 
 // Hints the buffer manager about the access intent of the caller. This influences the migration strategy
 enum class AccessIntent { Read, Write };
