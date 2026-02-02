@@ -138,9 +138,15 @@ add_executable(
     storage/buffer/buffer_benchmark_utils.hpp
     storage/buffer/allocation_benchmark.cpp
     storage/buffer/ycsb_buffer_manager_benchmark.cpp
-    storage/buffer/tpcc_buffer_manager_benchmark.cpp
-    storage/buffer/tpch_buffer_manager_benchmark.cpp
 )
+
+if (HYRISE_WITH_TPCC)
+    target_sources(hyriseBenchmarkBufferManager PRIVATE storage/buffer/tpcc_buffer_manager_benchmark.cpp)
+endif()
+
+if (HYRISE_WITH_TPCH)
+    target_sources(hyriseBenchmarkBufferManager PRIVATE storage/buffer/tpch_buffer_manager_benchmark.cpp)
+endif()
 
 if (NOT APPLE)
 target_compile_options(hyriseBenchmarkBufferManager PRIVATE -mavx -mavx512f -mclwb)

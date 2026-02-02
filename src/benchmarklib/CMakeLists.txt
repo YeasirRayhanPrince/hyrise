@@ -7,36 +7,11 @@ include_directories(
 # That breaks with unity builds, so we turn them off here.
 set(CMAKE_UNITY_BUILD "OFF")
 
+option(HYRISE_WITH_TPCC "Build TPCC sources into hyriseBenchmarkLib" OFF)
+option(HYRISE_WITH_TPCH "Build TPCH sources into hyriseBenchmarkLib" OFF)
+
 set(
     SOURCES
-
-    tpcc/constants.hpp
-    tpcc/defines.hpp
-    tpcc/tpcc_benchmark_item_runner.cpp
-    tpcc/tpcc_benchmark_item_runner.hpp
-    tpcc/tpcc_random_generator.hpp
-    tpcc/tpcc_table_generator.cpp
-    tpcc/tpcc_table_generator.hpp
-    tpcc/procedures/abstract_tpcc_procedure.cpp
-    tpcc/procedures/abstract_tpcc_procedure.hpp
-    tpcc/procedures/tpcc_delivery.cpp
-    tpcc/procedures/tpcc_delivery.hpp
-    tpcc/procedures/tpcc_new_order.cpp
-    tpcc/procedures/tpcc_new_order.hpp
-    tpcc/procedures/tpcc_order_status.cpp
-    tpcc/procedures/tpcc_order_status.hpp
-    tpcc/procedures/tpcc_payment.cpp
-    tpcc/procedures/tpcc_payment.hpp
-    tpcc/procedures/tpcc_stock_level.cpp
-    tpcc/procedures/tpcc_stock_level.hpp
-
-    tpch/tpch_constants.hpp
-    tpch/tpch_queries.cpp
-    tpch/tpch_queries.hpp
-    tpch/tpch_benchmark_item_runner.cpp
-    tpch/tpch_benchmark_item_runner.hpp
-    tpch/tpch_table_generator.cpp
-    tpch/tpch_table_generator.hpp
 
     jcch/jcch_benchmark_item_runner.cpp
     jcch/jcch_benchmark_item_runner.hpp
@@ -83,6 +58,42 @@ set(
     synthetic_table_generator.hpp
 )
 
+if (HYRISE_WITH_TPCC)
+    list(APPEND SOURCES
+        tpcc/constants.hpp
+        tpcc/defines.hpp
+        tpcc/tpcc_benchmark_item_runner.cpp
+        tpcc/tpcc_benchmark_item_runner.hpp
+        tpcc/tpcc_random_generator.hpp
+        tpcc/tpcc_table_generator.cpp
+        tpcc/tpcc_table_generator.hpp
+        tpcc/procedures/abstract_tpcc_procedure.cpp
+        tpcc/procedures/abstract_tpcc_procedure.hpp
+        tpcc/procedures/tpcc_delivery.cpp
+        tpcc/procedures/tpcc_delivery.hpp
+        tpcc/procedures/tpcc_new_order.cpp
+        tpcc/procedures/tpcc_new_order.hpp
+        tpcc/procedures/tpcc_order_status.cpp
+        tpcc/procedures/tpcc_order_status.hpp
+        tpcc/procedures/tpcc_payment.cpp
+        tpcc/procedures/tpcc_payment.hpp
+        tpcc/procedures/tpcc_stock_level.cpp
+        tpcc/procedures/tpcc_stock_level.hpp
+    )
+endif()
+
+if (HYRISE_WITH_TPCH)
+    list(APPEND SOURCES
+        tpch/tpch_constants.hpp
+        tpch/tpch_queries.cpp
+        tpch/tpch_queries.hpp
+        tpch/tpch_benchmark_item_runner.cpp
+        tpch/tpch_benchmark_item_runner.hpp
+        tpch/tpch_table_generator.cpp
+        tpch/tpch_table_generator.hpp
+    )
+endif()
+
 # Configure the regular hyrise library used for tests/server/playground...
 add_library(hyriseBenchmarkLib STATIC ${SOURCES})
 add_dependencies(hyriseBenchmarkLib jcchDbgen-build) # *-build is auto-generated
@@ -97,6 +108,9 @@ target_link_libraries(
 
     hyrise
     ${Boost_DATE_TIME_LIBRARY}
-    tpch_dbgen
     tpcds_dbgen
 )
+
+if (HYRISE_WITH_TPCH)
+    target_link_libraries(hyriseBenchmarkLib PUBLIC tpch_dbgen)
+endif()

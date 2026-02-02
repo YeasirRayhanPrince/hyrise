@@ -1,10 +1,21 @@
 #include "buffer_pool.hpp"
+#include <algorithm>
+#include <chrono>
+#include <unordered_map>
 #include "metrics.hpp"
+#include "migration_profiler.hpp"
 #include "storage/buffer/ssd_region.hpp"
 #include "volatile_region.hpp"
-#include <unordered_map>
 
 namespace hyrise {
+namespace {
+using Clock = std::chrono::high_resolution_clock;
+
+inline double duration_us(const Clock::time_point& start, const Clock::time_point& end) {
+  return std::chrono::duration_cast<std::chrono::duration<double, std::micro>>(end - start).count();
+}
+}  // namespace
+
 //TODO: properly check if disabled or not
 BufferPool::BufferPool(const bool enabled, const size_t pool_size, const bool enable_eviction_purge_worker,
                        std::array<std::shared_ptr<VolatileRegion>, NUM_PAGE_SIZE_TYPES> volatile_regions,
@@ -92,7 +103,7 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
       
       // Calculate pages needed based on bytes, but enforce minimum batch size
       const auto pages_from_bytes = (bytes_needed + min_page_bytes - 1) / min_page_bytes;
-      const auto pages_to_evict = std::max(min_demotion_batch_size, pages_from_bytes);
+      const auto pages_to_evict = std::max<size_t>(min_demotion_batch_size, static_cast<size_t>(pages_from_bytes));
 
       const auto evicted = evict_batch(pages_to_evict, &freed_bytes);
       // std::cout << "[BufferPool] Batch eviction: requested=" << pages_to_evict
@@ -116,6 +127,12 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
   
   // Fallback to single-page eviction if batching is disabled or failed
   if (!enable_batch_eviction || (current_bytes + bytes_required - freed_bytes) > max_bytes) {
+    const auto profiling_enabled = g_migration_profiler.enabled();
+    auto queue_scan_start = Clock::time_point{};
+    auto locking_time_us = 0.0;
+    if (profiling_enabled) {
+      queue_scan_start = Clock::now();
+    }
     while ((current_bytes + bytes_required - freed_bytes) > max_bytes) {
       if (!eviction_queue->try_pop(item)) {
         free_bytes(bytes_required);
@@ -145,7 +162,15 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
       }
 
       // Try locking the frame exclusively
-      if (!frame->try_lock_exclusive(current_state_and_version)) {
+      bool locked = false;
+      if (profiling_enabled) {
+        const auto lock_start = Clock::now();
+        locked = frame->try_lock_exclusive(current_state_and_version);
+        locking_time_us += duration_us(lock_start, Clock::now());
+      } else {
+        locked = frame->try_lock_exclusive(current_state_and_version);
+      }
+      if (!locked) {
         increment_counter(metrics->num_eviction_queue_items_purged);
         continue;
       }
@@ -153,7 +178,27 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
       Assert(frame->node_id() == node_id,
              "Memory node mismatch: " + std::to_string(frame->node_id()) + " != " + std::to_string(node_id));
 
-      evict(item, frame);
+      auto timing = MigrationPhaseTimings{};
+      MigrationPhaseTimings* timing_ptr = nullptr;
+      if (profiling_enabled) {
+        timing.queue_scan_time_us = duration_us(queue_scan_start, Clock::now());
+        timing.locking_time_us = locking_time_us;
+        timing.operation_type = "eviction";
+        timing.is_batch = false;
+        timing.pages_attempted = 1;
+        timing.pages_migrated = 1;
+        timing.bytes_migrated = bytes_for_size_type(item.page_id.size_type());
+        timing.size_type = item.page_id.size_type();
+        timing.syscall_count = 1;
+        timing_ptr = &timing;
+      }
+
+      evict(item, frame, timing_ptr);
+
+      if (profiling_enabled) {
+        queue_scan_start = Clock::now();
+        locking_time_us = 0.0;
+      }
 
       increment_counter(metrics->num_evictions);
 
@@ -169,10 +214,19 @@ bool BufferPool::ensure_free_pages(const PageSizeType required_size) {
   return true;
 }
 
-void BufferPool::evict(EvictionItem& item, Frame* frame) {
+void BufferPool::evict(EvictionItem& item, Frame* frame, MigrationPhaseTimings* timing) {
   DebugAssert(Frame::state(frame->state_and_version()) == Frame::LOCKED, "Frame cannot be locked");
   auto region = volatile_regions[static_cast<uint64_t>(item.page_id.size_type())];
   const auto num_bytes = bytes_for_size_type(item.page_id.size_type());
+
+  if (timing) {
+    timing->operation_type = "eviction";
+    timing->is_batch = false;
+    timing->size_type = item.page_id.size_type();
+    timing->pages_attempted = 1;
+    timing->pages_migrated = 1;
+    timing->bytes_migrated = num_bytes;
+  }
 
   // We try to evict the current item. Based on the migration policy, we to evict the page to a lower tier.
   // If this fails, we retry and some point, we might land on SSD.
@@ -194,6 +248,10 @@ void BufferPool::evict(EvictionItem& item, Frame* frame) {
 
       increment_counter(metrics->total_bytes_copied_to_ssd, num_bytes);
 
+      if (timing) {
+        timing->syscall_count = 0;
+      }
+
       return;
     } else {
       // Or we just move to other numa node and unlock again
@@ -201,9 +259,25 @@ void BufferPool::evict(EvictionItem& item, Frame* frame) {
         yield(repeat);
         continue;
       };
-      region->mbind_to_numa_node(item.page_id, target_buffer_pool->node_id);
-      frame->unlock_exclusive();
-      target_buffer_pool->add_to_eviction_queue(item.page_id, frame);
+      if (timing) {
+        timing->syscall_count = 1;
+      }
+      region->mbind_to_numa_node(item.page_id, target_buffer_pool->node_id, timing);
+
+      if (timing) {
+        const auto unlock_start = Clock::now();
+        frame->unlock_exclusive();
+        target_buffer_pool->add_to_eviction_queue(item.page_id, frame);
+        timing->unlock_time_us += duration_us(unlock_start, Clock::now());
+
+        if (timing->syscall_type.empty()) {
+          timing->syscall_type = "mbind";
+        }
+        g_migration_profiler.record_migration(*timing);
+      } else {
+        frame->unlock_exclusive();
+        target_buffer_pool->add_to_eviction_queue(item.page_id, frame);
+      }
       //   TODO:increment_counter(metrics.total_bytes_copied_from_dram_to_numa, num_bytes);
       return;
     }
@@ -215,6 +289,14 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
   // Collect pages to evict in batches by size type and destination
   std::unordered_map<PageSizeType, std::vector<EvictionItem>> pages_by_size;
   std::vector<std::pair<EvictionItem, Frame*>> locked_pages;
+
+  const auto profiling_enabled = g_migration_profiler.enabled();
+  auto queue_scan_start = Clock::time_point{};
+  auto locking_time_us = 0.0;
+  auto grouping_time_us = 0.0;
+  if (profiling_enabled) {
+    queue_scan_start = Clock::now();
+  }
   
   auto item = EvictionItem{};
   size_t pages_collected = 0;
@@ -259,16 +341,34 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
     }
 
     // Try locking the frame exclusively
-    if (!frame->try_lock_exclusive(current_state_and_version)) {
+    bool locked = false;
+    if (profiling_enabled) {
+      const auto lock_start = Clock::now();
+      locked = frame->try_lock_exclusive(current_state_and_version);
+      locking_time_us += duration_us(lock_start, Clock::now());
+    } else {
+      locked = frame->try_lock_exclusive(current_state_and_version);
+    }
+    if (!locked) {
       increment_counter(metrics->num_eviction_queue_items_purged);
       continue;
     }
 
     // Successfully locked - add to batch
-    locked_pages.emplace_back(item, frame);
-    pages_by_size[item.page_id.size_type()].push_back(item);
-    pages_collected++;
+    if (profiling_enabled) {
+      const auto group_start = Clock::now();
+      locked_pages.emplace_back(item, frame);
+      pages_by_size[item.page_id.size_type()].push_back(item);
+      pages_collected++;
+      grouping_time_us += duration_us(group_start, Clock::now());
+    } else {
+      locked_pages.emplace_back(item, frame);
+      pages_by_size[item.page_id.size_type()].push_back(item);
+      pages_collected++;
+    }
   }
+
+  const auto queue_scan_time_us = profiling_enabled ? duration_us(queue_scan_start, Clock::now()) : 0.0;
 
   if (locked_pages.empty()) {
     // std::cout << "[BufferPool::evict_batch] No pages locked for eviction after scanning " 
@@ -334,20 +434,57 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
       }
 
       // Perform batch migration using move_pages
+      auto timing = MigrationPhaseTimings{};
+      MigrationPhaseTimings* timing_ptr = nullptr;
+      if (profiling_enabled) {
+        timing.queue_scan_time_us = queue_scan_time_us;
+        timing.locking_time_us = locking_time_us;
+        timing.grouping_time_us = grouping_time_us;
+        timing.operation_type = "eviction";
+        timing.is_batch = true;
+        timing.pages_attempted = page_ids_to_migrate.size();
+        timing.pages_migrated = page_ids_to_migrate.size();
+        timing.bytes_migrated = page_ids_to_migrate.size() * bytes_for_size_type(size_type);
+        timing.size_type = size_type;
+        timing.syscall_count = 1;
+        timing_ptr = &timing;
+      }
+
       region->move_pages_to_numa_node_batch(page_ids_to_migrate, target_buffer_pool->node_id,
-                                            use_custom_syscall, migration_mode, migration_max_bs);
+                                            use_custom_syscall, migration_mode, migration_max_bs, timing_ptr);
 
       // Unlock all frames and add to target pool's eviction queue
-      for (const auto& item : items) {
-        auto frame = region->get_frame(item.page_id);
-        frame->unlock_exclusive();
-        target_buffer_pool->add_to_eviction_queue(item.page_id, frame);
-        
-        increment_counter(metrics->num_evictions);
-        if (bytes_freed) {
-          *bytes_freed += bytes_for_size_type(size_type);
+      if (profiling_enabled) {
+        const auto unlock_start = Clock::now();
+        for (const auto& item : items) {
+          auto frame = region->get_frame(item.page_id);
+          frame->unlock_exclusive();
+          target_buffer_pool->add_to_eviction_queue(item.page_id, frame);
+
+          increment_counter(metrics->num_evictions);
+          if (bytes_freed) {
+            *bytes_freed += bytes_for_size_type(size_type);
+          }
+          evicted_count++;
         }
-        evicted_count++;
+        timing.unlock_time_us += duration_us(unlock_start, Clock::now());
+
+        if (timing.syscall_type.empty()) {
+          timing.syscall_type = use_custom_syscall ? "move_pages2" : "move_pages";
+        }
+        g_migration_profiler.record_migration(timing);
+      } else {
+        for (const auto& item : items) {
+          auto frame = region->get_frame(item.page_id);
+          frame->unlock_exclusive();
+          target_buffer_pool->add_to_eviction_queue(item.page_id, frame);
+
+          increment_counter(metrics->num_evictions);
+          if (bytes_freed) {
+            *bytes_freed += bytes_for_size_type(size_type);
+          }
+          evicted_count++;
+        }
       }
     }
   }
@@ -369,6 +506,14 @@ size_t BufferPool::promote_batch(NodeID target_node_id) {
   // Collect pages to promote, grouped by size type
   std::unordered_map<PageSizeType, std::vector<PageID>> pages_by_size;
   std::vector<std::pair<PageID, Frame*>> locked_pages;
+
+  const auto profiling_enabled = g_migration_profiler.enabled();
+  auto queue_scan_start = Clock::time_point{};
+  auto locking_time_us = 0.0;
+  auto grouping_time_us = 0.0;
+  if (profiling_enabled) {
+    queue_scan_start = Clock::now();
+  }
   
   PageID page_id;
   size_t pages_collected = 0;
@@ -402,7 +547,15 @@ size_t BufferPool::promote_batch(NodeID target_node_id) {
     }
 
     // Try locking the frame exclusively for promotion
-    if (!frame->try_lock_exclusive(current_state_and_version)) {
+    bool locked = false;
+    if (profiling_enabled) {
+      const auto lock_start = Clock::now();
+      locked = frame->try_lock_exclusive(current_state_and_version);
+      locking_time_us += duration_us(lock_start, Clock::now());
+    } else {
+      locked = frame->try_lock_exclusive(current_state_and_version);
+    }
+    if (!locked) {
       // Re-queue for later attempt
       promotion_queue->push(page_id);
       continue;
@@ -415,10 +568,20 @@ size_t BufferPool::promote_batch(NodeID target_node_id) {
     }
 
     // Successfully locked - add to batch
-    locked_pages.emplace_back(page_id, frame);
-    pages_by_size[page_id.size_type()].push_back(page_id);
-    pages_collected++;
+    if (profiling_enabled) {
+      const auto group_start = Clock::now();
+      locked_pages.emplace_back(page_id, frame);
+      pages_by_size[page_id.size_type()].push_back(page_id);
+      pages_collected++;
+      grouping_time_us += duration_us(group_start, Clock::now());
+    } else {
+      locked_pages.emplace_back(page_id, frame);
+      pages_by_size[page_id.size_type()].push_back(page_id);
+      pages_collected++;
+    }
   }
+
+  const auto queue_scan_time_us = profiling_enabled ? duration_us(queue_scan_start, Clock::now()) : 0.0;
 
   if (locked_pages.empty()) {
     return 0;  // No pages to promote
@@ -431,14 +594,45 @@ size_t BufferPool::promote_batch(NodeID target_node_id) {
     auto region = volatile_regions[static_cast<uint64_t>(size_type)];
     
     // Perform batch migration using move_pages
+    auto timing = MigrationPhaseTimings{};
+    MigrationPhaseTimings* timing_ptr = nullptr;
+    if (profiling_enabled) {
+      timing.queue_scan_time_us = queue_scan_time_us;
+      timing.locking_time_us = locking_time_us;
+      timing.grouping_time_us = grouping_time_us;
+      timing.operation_type = "promotion";
+      timing.is_batch = true;
+      timing.pages_attempted = page_ids.size();
+      timing.pages_migrated = page_ids.size();
+      timing.bytes_migrated = page_ids.size() * bytes_for_size_type(size_type);
+      timing.size_type = size_type;
+      timing.syscall_count = 1;
+      timing_ptr = &timing;
+    }
+
     region->move_pages_to_numa_node_batch(page_ids, target_node_id,
-                                          use_custom_syscall, migration_mode, migration_max_bs);
+                                          use_custom_syscall, migration_mode, migration_max_bs, timing_ptr);
 
     // Unlock all frames after migration
-    for (const auto& pid : page_ids) {
-      auto frame = region->get_frame(pid);
-      frame->unlock_exclusive();
-      promoted_count++;
+    if (profiling_enabled) {
+      const auto unlock_start = Clock::now();
+      for (const auto& pid : page_ids) {
+        auto frame = region->get_frame(pid);
+        frame->unlock_exclusive();
+        promoted_count++;
+      }
+      timing.unlock_time_us += duration_us(unlock_start, Clock::now());
+
+      if (timing.syscall_type.empty()) {
+        timing.syscall_type = use_custom_syscall ? "move_pages2" : "move_pages";
+      }
+      g_migration_profiler.record_migration(timing);
+    } else {
+      for (const auto& pid : page_ids) {
+        auto frame = region->get_frame(pid);
+        frame->unlock_exclusive();
+        promoted_count++;
+      }
     }
   }
 

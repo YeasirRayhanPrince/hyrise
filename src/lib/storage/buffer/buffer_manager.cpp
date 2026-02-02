@@ -7,6 +7,7 @@
 #include <fstream>
 #include <utility>
 #include "hyrise.hpp"
+#include "storage/buffer/migration_profiler.hpp"
 #include "storage/buffer/ssd_region.hpp"
 #include "storage/buffer/volatile_region.hpp"
 #include "utils/assert.hpp"
@@ -58,6 +59,7 @@ BufferManager::Config BufferManager::Config::from_env() {
     config.enable_batch_eviction = json.value("enable_batch_eviction", config.enable_batch_eviction);
     config.enable_batch_promotion = json.value("enable_batch_promotion", config.enable_batch_promotion);
     config.use_custom_syscall = json.value("use_custom_syscall", config.use_custom_syscall);
+    config.enable_migration_profiling = json.value("enable_migration_profiling", config.enable_migration_profiling);
     config.min_demotion_batch_size = json.value("min_demotion_batch_size", config.min_demotion_batch_size);
     config.min_promotion_batch_size = json.value("min_promotion_batch_size", config.min_promotion_batch_size);
     config.max_demotion_queue_scan_multiplier = json.value("max_demotion_queue_scan_multiplier", config.max_demotion_queue_scan_multiplier);
@@ -86,6 +88,7 @@ nlohmann::json BufferManager::Config::to_json() const {
   json["enable_batch_eviction"] = enable_batch_eviction;
   json["enable_batch_promotion"] = enable_batch_promotion;
   json["use_custom_syscall"] = use_custom_syscall;
+  json["enable_migration_profiling"] = enable_migration_profiling;
   json["min_demotion_batch_size"] = min_demotion_batch_size;
   json["min_promotion_batch_size"] = min_promotion_batch_size;
   json["max_demotion_queue_scan_multiplier"] = max_demotion_queue_scan_multiplier;
@@ -124,6 +127,8 @@ BufferManager::BufferManager(const Config config)
                                                         config.max_demotion_queue_scan_multiplier, config.max_promotion_queue_scan_multiplier,
                                                         config.migration_mode, config.migration_max_bs)) {
   Assert(config.cpu_node != config.memory_node, "CPU and memory node must be different");
+
+  g_migration_profiler.set_enabled(config.enable_migration_profiling);
   
   // Print buffer manager configuration
   std::cout << "\n=== Buffer Manager Configuration ===" << std::endl;
@@ -146,6 +151,7 @@ BufferManager::BufferManager(const Config config)
   std::cout << "  Max promotion queue scan multiplier: " << config.max_promotion_queue_scan_multiplier << std::endl;
   std::cout << "Custom syscall settings:" << std::endl;
   std::cout << "  Use custom syscall: " << (config.use_custom_syscall ? "true" : "false") << std::endl;
+  std::cout << "Migration profiling enabled: " << (config.enable_migration_profiling ? "true" : "false") << std::endl;
   std::cout << "  Migration mode: " << config.migration_mode << std::endl;
   std::cout << "  Migration max batch size: " << config.migration_max_bs << std::endl;
   std::cout << "=====================================\n" << std::endl;
@@ -172,6 +178,10 @@ BufferManager::~BufferManager() {
   std::cout << "  Total pages promoted: " << _metrics->numa_buffer_pool_metrics->total_pages_promoted.load() << std::endl;
   std::cout << "  Average batch size: " << _metrics->numa_buffer_pool_metrics->avg_batch_promotion_size() << std::endl;
   std::cout << "=================================\n" << std::endl;
+
+  if (g_migration_profiler.enabled()) {
+    g_migration_profiler.print_summary();
+  }
   
   unmap_region(_mapped_region);
 }

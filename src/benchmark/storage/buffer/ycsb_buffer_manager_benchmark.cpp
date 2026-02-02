@@ -12,6 +12,7 @@
 #include "hyrise.hpp"
 #include "storage/buffer/buffer_manager.hpp"
 #include "storage/buffer/jemalloc_resource.hpp"
+#include "storage/buffer/migration_profiler.hpp"
 #include "storage/buffer/zipfian_int_distribution.hpp"
 
 namespace hyrise {
@@ -32,7 +33,7 @@ class YCSBBufferManagerFixture : public benchmark::Fixture {
   constexpr static auto DEFAULT_DRAM_BUFFER_POOL_SIZE = 2UL * GB;
   constexpr static auto DEFAULT_NUMA_BUFFER_POOL_SIZE = 4UL * GB;
 
-  constexpr static auto NUM_OPERATIONS = 10 * 1000 * 1000;
+  constexpr static auto NUM_OPERATIONS = 1000 * 1000 * 1000;  // 1 billion operations (~6-7 min runtime)
 
   YCSBTable table;
   YCSBOperations operations;
@@ -67,6 +68,10 @@ class YCSBBufferManagerFixture : public benchmark::Fixture {
         operations = generate_ycsb_operations<WL, NUM_OPERATIONS>(table.size(), 0.9);
         operations_per_thread = operations.size() / state.threads();
         init_histogram(&latency_histogram);
+        
+        // Clear profiler data for clean benchmarking
+        g_migration_profiler.clear();
+        
         load_complete.store(true, std::memory_order_release);
         load_cv.notify_all();
       } else {

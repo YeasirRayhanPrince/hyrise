@@ -10,6 +10,7 @@ namespace hyrise {
 class SSDRegion;
 class VolatileRegion;
 struct BufferPoolMetrics;
+struct MigrationPhaseTimings;
 
 struct BufferPool {
   BufferPool(const bool enabled, const size_t pool_size, const bool enable_eviction_purge_worker,
@@ -21,7 +22,7 @@ struct BufferPool {
              const size_t max_demotion_queue_scan_multiplier = 16, const size_t max_promotion_queue_scan_multiplier = 16,
              const int migration_mode = 0, const int migration_max_bs = 32);
 
-  void evict(EvictionItem& item, Frame* frame);
+  void evict(EvictionItem& item, Frame* frame, MigrationPhaseTimings* timing = nullptr);
   
   // Batch eviction: evict multiple pages at once for better performance
   // Optionally returns freed bytes via bytes_freed.

@@ -1,10 +1,12 @@
 #include "volatile_region.hpp"
+#include <chrono>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include "migration_profiler.hpp"
 #include "utils/assert.hpp"
 
 #if HYRISE_NUMA_SUPPORT
@@ -19,6 +21,14 @@
 #endif
 
 namespace hyrise {
+
+namespace {
+using Clock = std::chrono::high_resolution_clock;
+
+inline double duration_us(const Clock::time_point& start, const Clock::time_point& end) {
+  return std::chrono::duration_cast<std::chrono::duration<double, std::micro>>(end - start).count();
+}
+}  // namespace
 
 VolatileRegion::VolatileRegion(const PageSizeType size_type, std::byte* region_start, std::byte* region_end,
                                std::shared_ptr<BufferManagerMetrics> metrics)
@@ -43,87 +53,170 @@ VolatileRegion::VolatileRegion(const PageSizeType size_type, std::byte* region_s
   }
 }
 
-void VolatileRegion::move_page_to_numa_node(PageID page_id, const NodeID target_memory_node) {
+void VolatileRegion::move_page_to_numa_node(PageID page_id, const NodeID target_memory_node,
+                                            MigrationPhaseTimings* timing) {
   DebugAssert(page_id.size_type() == _size_type, "Page does not belong to this region.");
 #if HYRISE_NUMA_SUPPORT
   DebugAssert(target_memory_node != INVALID_NODE_ID, "Numa node has not been set.");
+  const auto do_timing = timing != nullptr || g_migration_profiler.enabled();
+  auto local_timing = MigrationPhaseTimings{};
+  auto* timing_ptr = timing ? timing : &local_timing;
+
+  if (do_timing) {
+    timing_ptr->size_type = _size_type;
+    timing_ptr->is_batch = false;
+    timing_ptr->pages_attempted = 1;
+    timing_ptr->pages_migrated = 1;
+    timing_ptr->bytes_migrated = bytes_for_size_type(_size_type);
+    timing_ptr->syscall_count = 1;
+    timing_ptr->syscall_type = "move_pages";
+  }
+
   static thread_local std::vector<void*> pages_to_move{bytes_for_size_type(_size_type) / OS_PAGE_SIZE};
   static thread_local std::vector<int> nodes{static_cast<int>(bytes_for_size_type(_size_type) / OS_PAGE_SIZE)};
   static thread_local std::vector<int> status{static_cast<int>(bytes_for_size_type(_size_type) / OS_PAGE_SIZE)};
 
+  const auto array_start = do_timing ? Clock::now() : Clock::time_point{};
   for (auto i = 0u; i < pages_to_move.size(); ++i) {
     pages_to_move[i] = get_page(page_id) + i * OS_PAGE_SIZE;
     nodes[i] = target_memory_node;
   }
+  if (do_timing) {
+    timing_ptr->array_build_time_us += duration_us(array_start, Clock::now());
+  }
+
+  const auto syscall_start = do_timing ? Clock::now() : Clock::time_point{};
   if (move_pages(0, pages_to_move.size(), pages_to_move.data(), nodes.data(), status.data(), MPOL_MF_MOVE) < 0) {
     const auto error = errno;
     Fail("Move pages failed: " + strerror(error));
   }
+  if (do_timing) {
+    timing_ptr->syscall_time_us += duration_us(syscall_start, Clock::now());
+  }
   _metrics->num_numa_tonode_memory_calls.fetch_add(1, std::memory_order_relaxed);
+
+  const auto metadata_start = do_timing ? Clock::now() : Clock::time_point{};
+  _frames[page_id.index].set_node_id(target_memory_node);
+  if (do_timing) {
+    timing_ptr->metadata_update_time_us += duration_us(metadata_start, Clock::now());
+  }
+
+  if (do_timing && timing == nullptr) {
+    g_migration_profiler.record_migration(*timing_ptr);
+  }
+#else
+  (void)timing;
   _frames[page_id.index].set_node_id(target_memory_node);
 #endif
 }
 
-void VolatileRegion::mbind_to_numa_node(PageID page_id, const NodeID target_memory_node) {
-  DebugAssert(page_id.size_type() == _size_type, "Page does not belong to this region.");
-
 #if HYRISE_NUMA_SUPPORT
+void VolatileRegion::mbind_to_numa_node(PageID page_id, const NodeID target_memory_node,
+                                        MigrationPhaseTimings* timing) {
+  DebugAssert(page_id.size_type() == _size_type, "Page does not belong to this region.");
   DebugAssert(target_memory_node != INVALID_NODE_ID, "Numa node has not been set.");
 
+  const auto do_timing = timing != nullptr || g_migration_profiler.enabled();
+  auto local_timing = MigrationPhaseTimings{};
+  auto* timing_ptr = timing ? timing : &local_timing;
+
+  if (do_timing) {
+    timing_ptr->size_type = _size_type;
+    timing_ptr->is_batch = false;
+    timing_ptr->pages_attempted = 1;
+    timing_ptr->pages_migrated = 1;
+    timing_ptr->bytes_migrated = bytes_for_size_type(_size_type);
+    timing_ptr->syscall_count = 1;
+    timing_ptr->syscall_type = "mbind";
+  }
+
   const auto num_bytes = bytes_for_size_type(_size_type);
-  
-  // // Debug: Count current memory mappings
-  // static std::atomic<size_t> mbind_call_count{0};
-  // auto call_num = mbind_call_count.fetch_add(1, std::memory_order_relaxed);
-  
-  // // Log every 10000 calls to avoid too much output
-  // if (call_num % 10000 == 0) {
-  //   std::ifstream maps_file("/proc/self/maps");
-  //   size_t map_count = std::count(std::istreambuf_iterator<char>(maps_file),
-  //                                  std::istreambuf_iterator<char>(), '\n');
-  //   std::cerr << "[DEBUG mbind] call_num=" << call_num 
-  //             << " page_id=" << page_id.index 
-  //             << " size_type=" << static_cast<int>(_size_type)
-  //             << " num_bytes=" << num_bytes 
-  //             << " target_node=" << target_memory_node 
-  //             << " current_map_count=" << map_count << std::endl;
-  // }
-  
+  const auto array_start = do_timing ? Clock::now() : Clock::time_point{};
   auto nodes = numa_allocate_nodemask();
   numa_bitmask_setbit(nodes, target_memory_node);
+  if (do_timing) {
+    timing_ptr->array_build_time_us += duration_us(array_start, Clock::now());
+  }
+
+  const auto syscall_start = do_timing ? Clock::now() : Clock::time_point{};
   if (mbind(get_page(page_id), num_bytes, MPOL_BIND, nodes ? nodes->maskp : NULL, nodes ? nodes->size + 1 : 0,
             MPOL_MF_MOVE | MPOL_MF_STRICT) != 0) {
     const auto error = errno;
-    
-    // // Debug: Log failure details
-    // std::ifstream maps_file("/proc/self/maps");
-    // size_t map_count = std::count(std::istreambuf_iterator<char>(maps_file),
-    //                                std::istreambuf_iterator<char>(), '\n');
-    // std::cerr << "[DEBUG mbind] FAILED! call_num=" << call_num
-    //           << " page_id=" << page_id.index 
-    //           << " errno=" << error << " (" << strerror(error) << ")"
-    //           << " map_count=" << map_count << std::endl;
-    
     numa_bitmask_free(nodes);
     Fail("Mbind failed: " + std::string(strerror(error)) +
          " . Either no space is left or vm map count is exhausted. Try: \"sudo sysctl vm.max_map_count=X\"");
   }
+  if (do_timing) {
+    timing_ptr->syscall_time_us += duration_us(syscall_start, Clock::now());
+  }
   numa_bitmask_free(nodes);
   _metrics->num_numa_tonode_memory_calls.fetch_add(1, std::memory_order_relaxed);
-#endif
+
+  const auto metadata_start = do_timing ? Clock::now() : Clock::time_point{};
   _frames[page_id.index].set_node_id(target_memory_node);
+  if (do_timing) {
+    timing_ptr->metadata_update_time_us += duration_us(metadata_start, Clock::now());
+  }
+
+  if (do_timing && timing == nullptr) {
+    g_migration_profiler.record_migration(*timing_ptr);
+  }
 }
+#else
+void VolatileRegion::mbind_to_numa_node(PageID page_id, const NodeID target_memory_node,
+                                        MigrationPhaseTimings* timing) {
+  DebugAssert(page_id.size_type() == _size_type, "Page does not belong to this region.");
+
+  const auto do_timing = timing != nullptr || g_migration_profiler.enabled();
+  auto local_timing = MigrationPhaseTimings{};
+  auto* timing_ptr = timing ? timing : &local_timing;
+
+  if (do_timing) {
+    timing_ptr->size_type = _size_type;
+    timing_ptr->is_batch = false;
+    timing_ptr->pages_attempted = 1;
+    timing_ptr->pages_migrated = 1;
+    timing_ptr->bytes_migrated = bytes_for_size_type(_size_type);
+    timing_ptr->syscall_count = 0;
+    timing_ptr->syscall_type = "none";
+  }
+
+  const auto metadata_start = do_timing ? Clock::now() : Clock::time_point{};
+  _frames[page_id.index].set_node_id(target_memory_node);
+  if (do_timing) {
+    timing_ptr->metadata_update_time_us += duration_us(metadata_start, Clock::now());
+  }
+
+  if (do_timing && timing == nullptr) {
+    g_migration_profiler.record_migration(*timing_ptr);
+  }
+}
+#endif
 
 void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& page_ids, 
                                                      const NodeID target_memory_node,
                                                      bool use_custom_syscall, int migration_mode,
-                                                     int migration_max_bs) {
+                                                     int migration_max_bs, MigrationPhaseTimings* timing) {
 #if HYRISE_NUMA_SUPPORT
   if (page_ids.empty()) {
     return;
   }
 
   DebugAssert(target_memory_node != INVALID_NODE_ID, "Numa node has not been set.");
+
+  const auto do_timing = timing != nullptr || g_migration_profiler.enabled();
+  auto local_timing = MigrationPhaseTimings{};
+  auto* timing_ptr = timing ? timing : &local_timing;
+
+  if (do_timing) {
+    timing_ptr->size_type = _size_type;
+    timing_ptr->is_batch = true;
+    timing_ptr->pages_attempted = page_ids.size();
+    timing_ptr->pages_migrated = page_ids.size();
+    timing_ptr->bytes_migrated = page_ids.size() * bytes_for_size_type(_size_type);
+    timing_ptr->syscall_count = 1;
+    timing_ptr->syscall_type = use_custom_syscall ? "move_pages2" : "move_pages";
+  }
 
   // Calculate total number of OS pages to move
   const auto page_size_bytes = bytes_for_size_type(_size_type);
@@ -136,6 +229,7 @@ void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& pa
   std::vector<int> status(total_os_pages);
 
   // Fill arrays with all OS pages from all Hyrise pages
+  const auto array_start = do_timing ? Clock::now() : Clock::time_point{};
   size_t os_page_idx = 0;
   for (const auto& page_id : page_ids) {
     DebugAssert(page_id.size_type() == _size_type, "Page does not belong to this region.");
@@ -147,8 +241,12 @@ void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& pa
       os_page_idx++;
     }
   }
+  if (do_timing) {
+    timing_ptr->array_build_time_us += duration_us(array_start, Clock::now());
+  }
 
   // Perform batch migration using standard or custom syscall
+  const auto syscall_start = do_timing ? Clock::now() : Clock::time_point{};
   if (use_custom_syscall) {
     // Custom move_pages2 syscall: move_pages2(count, pages[], nodes[], status[], migrate_mode, nr_max_batched_migration)
     const auto result = syscall(SYS_move_pages2, 0, total_os_pages, pages_to_move.data(), 
@@ -168,20 +266,48 @@ void VolatileRegion::move_pages_to_numa_node_batch(const std::vector<PageID>& pa
       Fail("Batch move_pages failed: " + std::string(strerror(error)));
     }
   }
+  if (do_timing) {
+    timing_ptr->syscall_time_us += duration_us(syscall_start, Clock::now());
+  }
 
   // Update frame metadata for all migrated pages
+  const auto metadata_start = do_timing ? Clock::now() : Clock::time_point{};
   for (const auto& page_id : page_ids) {
     _frames[page_id.index].set_node_id(target_memory_node);
   }
+  if (do_timing) {
+    timing_ptr->metadata_update_time_us += duration_us(metadata_start, Clock::now());
+  }
 
   _metrics->num_numa_tonode_memory_calls.fetch_add(1, std::memory_order_relaxed);
+
+  if (do_timing && timing == nullptr) {
+    g_migration_profiler.record_migration(*timing_ptr);
+  }
 #else
   // Fallback for non-NUMA builds: just update metadata
   (void)use_custom_syscall;
   (void)migration_mode;
   (void)migration_max_bs;
+  const auto do_timing = timing != nullptr || g_migration_profiler.enabled();
+  auto local_timing = MigrationPhaseTimings{};
+  auto* timing_ptr = timing ? timing : &local_timing;
+  const auto metadata_start = do_timing ? Clock::now() : Clock::time_point{};
   for (const auto& page_id : page_ids) {
     _frames[page_id.index].set_node_id(target_memory_node);
+  }
+  if (do_timing) {
+    timing_ptr->size_type = _size_type;
+    timing_ptr->is_batch = true;
+    timing_ptr->pages_attempted = page_ids.size();
+    timing_ptr->pages_migrated = page_ids.size();
+    timing_ptr->bytes_migrated = page_ids.size() * bytes_for_size_type(_size_type);
+    timing_ptr->syscall_count = 0;
+    timing_ptr->syscall_type = "none";
+    timing_ptr->metadata_update_time_us += duration_us(metadata_start, Clock::now());
+  }
+  if (do_timing && timing == nullptr) {
+    g_migration_profiler.record_migration(*timing_ptr);
   }
 #endif
 }
