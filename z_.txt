@@ -1,3 +1,17 @@
+
+sudo apt install -y python3.12-venv
+python3 -m venv venv
+source venv/bin/activate && pip3 install -r requirements.txt
+
+sudo apt-get install -y autoconf bash-completion bc cmake curl dos2unix gcovr git graphviz libboost-all-dev libhwloc-dev libncurses-dev libnuma-dev libnuma1 libpq-dev libreadline-dev libsqlite3-dev libtbb-dev lld man parallel postgresql-server-dev-all python3 python3-pip valgrind clang clang-format clang-tidy g++ gcc llvm llvm-dev
+sudo apt-get install -y cmake clang g++ gcc git libnuma-dev libtbb-dev libreadline-dev libjemalloc-dev libzstd-dev ninja-build
+sudo apt-get install -y sqlite3 libsqlite3-dev
+./install_dependencies.sh
+
+ cd /users/yrayhan/hyrise/cmake-build-debug && cmake -DCMAKE_BUILD_TYPE=Debug ..
+ cd /users/yrayhan/hyrise/cmake-build-debug && cmake -DCMAKE_BUILD_TYPE=Release .. 
+
+  cd /users/yrayhan/hyrise/cmake-build-debug && rm -rf CMakeCache.txt CMakeFiles && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release ..
 ================================================================================
 KERNEL TUNING
 ================================================================================
@@ -24,7 +38,7 @@ NOTES
    - Requires code recompilation after config change
 
 ================================================================================
-echo "vm.max_map_count=2000000" | sudo tee -a /etc/sysctl.conf
+echo "vm.max_map_count=1000000000" | sudo tee -a /etc/sysctl.conf
 sudo sysctl -p
 
 # observer current 
@@ -38,6 +52,6 @@ cd /users/yrayhan/hyrise/cmake-build-release && make -j$(nproc) hyriseBenchmarkB
 
 # run a particular benchmark
 export HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json
-/users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/32/iterations:1/repeats:1/real_time/threads:11"
+/users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/2/iterations:1/repeats:1/real_time/threads:11"
 
-numactl --cpunodebind=0 env HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/32/iterations:1/repeats:1/real_time/threads:11"
+numactl --cpunodebind=0 env HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/2/iterations:1/repeats:1/real_time/threads:11"

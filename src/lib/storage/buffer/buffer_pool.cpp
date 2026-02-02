@@ -654,7 +654,7 @@ size_t BufferPool::free_bytes_node() const {
   if (node_id == INVALID_NODE_ID) {
     return 0;
   }
-  long long free_bytes;
+  long free_bytes;
   numa_node_size(node_id, &free_bytes);
   return free_bytes;
 #else

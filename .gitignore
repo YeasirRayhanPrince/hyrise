@@ -50,3 +50,4 @@ ssb_data/
 # local
 ssd/
 build/
+venv/
