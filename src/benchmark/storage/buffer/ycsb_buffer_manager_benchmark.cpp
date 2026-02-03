@@ -33,7 +33,7 @@ class YCSBBufferManagerFixture : public benchmark::Fixture {
   constexpr static auto DEFAULT_DRAM_BUFFER_POOL_SIZE = 2UL * GB;
   constexpr static auto DEFAULT_NUMA_BUFFER_POOL_SIZE = 4UL * GB;
 
-  constexpr static auto NUM_OPERATIONS = 10 * 1000 * 1000;  // 10 million operations (~few seconds runtime)
+  constexpr static auto NUM_OPERATIONS = 100 * 1000 * 1000;  // 10 million operations (~few seconds runtime)
 
   YCSBTable table;
   YCSBOperations operations;
@@ -106,7 +106,7 @@ class YCSBBufferManagerFixture : public benchmark::Fixture {
     run_ycsb(*this, state);                                                                             \
   }                                                                                                     \
   BENCHMARK_REGISTER_F(YCSBBufferManagerFixture, BM_ycsb_##WL##Policy)                                  \
-      ->DenseThreadRange(1, 48, 2)                                                                      \
+      ->DenseThreadRange(1, 48, 1)                                                                      \
       ->Iterations(1)                                                                                   \
       ->Repetitions(1)                                                                                  \
       ->UseRealTime()                                                                                   \

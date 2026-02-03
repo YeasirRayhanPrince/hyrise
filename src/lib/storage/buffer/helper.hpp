@@ -1,6 +1,7 @@
 #pragma once
 
 #include <tbb/concurrent_queue.h>
+#include <boost/lockfree/stack.hpp>
 #include <bit>
 #include <iostream>
 #include <limits>
@@ -110,7 +111,9 @@ struct EvictionItem {
 using EvictionQueue = tbb::concurrent_queue<EvictionItem>;
 
 // Promotion queue for deferred batch promotion (NUMA -> DRAM)
-using PromotionQueue = tbb::concurrent_queue<PageID>;
+// Changed to LIFO (stack) to prioritize recently accessed (hot) pages
+// OLD (FIFO): using PromotionQueue = tbb::concurrent_queue<PageID>;
+using PromotionQueue = boost::lockfree::stack<PageID>;
 
 // Default minimum number of pages to promote in a batch operation.
 // NOTE: This compile-time default can be overridden by runtime config (min_promotion_batch_size in JSON).

@@ -68,6 +68,9 @@ struct BufferPool {
 
   // Promotion queue for pages to be promoted from NUMA to DRAM in batch
   std::unique_ptr<PromotionQueue> promotion_queue;
+  
+  // Track promotion queue size (stack doesn't have unsafe_size())
+  std::atomic_size_t promotion_queue_size{0};
 
   // Async background worker that purges the eviction queue
   std::unique_ptr<PausableLoopThread> eviction_purge_worker;

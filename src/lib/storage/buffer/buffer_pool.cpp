@@ -500,6 +500,7 @@ size_t BufferPool::evict_batch(size_t num_pages_to_evict, size_t* bytes_freed) {
 
 void BufferPool::add_to_promotion_queue(const PageID page_id) {
   promotion_queue->push(page_id);
+  promotion_queue_size.fetch_add(1, std::memory_order_relaxed);
 }
 
 size_t BufferPool::promote_batch(NodeID target_node_id) {
@@ -524,10 +525,13 @@ size_t BufferPool::promote_batch(NodeID target_node_id) {
 
   // Phase 1: Collect and lock pages from promotion queue
   while (pages_collected < min_promotion_batch_size && queue_items_scanned < max_queue_scans) {
-    if (!promotion_queue->try_pop(page_id)) {
+    // OLD (FIFO queue): if (!promotion_queue->try_pop(page_id)) {
+    // NEW (LIFO stack): pop returns most recently added page
+    if (!promotion_queue->pop(page_id)) {
       break;  // No more items in queue
     }
     
+    promotion_queue_size.fetch_sub(1, std::memory_order_relaxed);
     queue_items_scanned++;
 
     auto region = volatile_regions[static_cast<uint64_t>(page_id.size_type())];
@@ -543,6 +547,7 @@ size_t BufferPool::promote_batch(NodeID target_node_id) {
     if (Frame::state(current_state_and_version) != Frame::UNLOCKED) {
       // Re-queue for later attempt
       promotion_queue->push(page_id);
+      promotion_queue_size.fetch_add(1, std::memory_order_relaxed);
       continue;
     }
 
@@ -558,6 +563,7 @@ size_t BufferPool::promote_batch(NodeID target_node_id) {
     if (!locked) {
       // Re-queue for later attempt
       promotion_queue->push(page_id);
+      promotion_queue_size.fetch_add(1, std::memory_order_relaxed);
       continue;
     }
 

@@ -308,7 +308,9 @@ void BufferManager::make_resident(const PageID page_id, const AccessIntent acces
       } else {
         // Case 5.2 (Batch): Migrate to DRAM with batch promotion
         // Check if we have enough pages in promotion queue for batch promotion
-        if (_secondary_buffer_pool->promotion_queue->unsafe_size() >= MIN_PROMOTION_BATCH_SIZE) {
+        // OLD (FIFO queue): if (_secondary_buffer_pool->promotion_queue->unsafe_size() >= MIN_PROMOTION_BATCH_SIZE) {
+        // NEW (LIFO stack): use tracked counter
+        if (_secondary_buffer_pool->promotion_queue_size.load(std::memory_order_relaxed) >= MIN_PROMOTION_BATCH_SIZE) {
           // Batch promote queued pages
           if (_primary_buffer_pool->ensure_free_pages(page_id.size_type())) {
             _secondary_buffer_pool->promote_batch(_primary_buffer_pool->node_id);

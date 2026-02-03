@@ -52,4 +52,4 @@ ssd/
 build/
 venv/
 benchmark_results/
-benchmark_plots/
+benchmark_plots /
