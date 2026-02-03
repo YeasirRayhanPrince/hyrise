@@ -60,63 +60,69 @@ def main():
         original_config = json.load(f)
 
     # Define sweep values here
-    batch_sizes = [32, 64, 128, 256, 512]
+    batch_sizes = [
+        # 32, 
+        # 64, 
+        # 128, 
+        # 256, 
+        512
+        ]
     migration_modes = [0, 1, 2]
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     summary_path = output_dir / f"summary_{timestamp}.jsonl"
 
     try:
-        for use_custom_syscall in [True, False]:
-            # When use_custom_syscall is True, only use migration_mode 0
-            modes_to_use = [0] if use_custom_syscall else migration_modes
+        # for use_custom_syscall in [True, False]:
+        #     # When use_custom_syscall is True, only use migration_mode 0
+        #     modes_to_use = [0] if use_custom_syscall else migration_modes
             
-            for batch_size in batch_sizes:
-                for migration_mode in modes_to_use:
-                    # min_demotion_batch_size, min_promotion_batch_size, and migration_max_bs all get the same value
-                    min_demotion = batch_size
-                    min_promotion = batch_size
-                    migration_max_bs = batch_size
+        #     for batch_size in batch_sizes:
+        #         for migration_mode in modes_to_use:
+        #             # min_demotion_batch_size, min_promotion_batch_size, and migration_max_bs all get the same value
+        #             min_demotion = batch_size
+        #             min_promotion = batch_size
+        #             migration_max_bs = batch_size
 
-                    current_config = deepcopy(original_config)
-                    current_config["use_custom_syscall"] = use_custom_syscall
-                    current_config["min_demotion_batch_size"] = min_demotion
-                    current_config["min_promotion_batch_size"] = min_promotion
-                    current_config["migration_mode"] = migration_mode
-                    current_config["migration_max_bs"] = migration_max_bs
+        #             current_config = deepcopy(original_config)
+        #             current_config["use_custom_syscall"] = use_custom_syscall
+        #             current_config["min_demotion_batch_size"] = min_demotion
+        #             current_config["min_promotion_batch_size"] = min_promotion
+        #             current_config["migration_mode"] = migration_mode
+        #             current_config["migration_max_bs"] = migration_max_bs
 
-                    with config_path.open("w", encoding="utf-8") as f:
-                        json.dump(current_config, f, indent=2)
-                        f.write("\n")
+        #             with config_path.open("w", encoding="utf-8") as f:
+        #                 json.dump(current_config, f, indent=2)
+        #                 f.write("\n")
 
-                    result = run_benchmark(config_path, benchmark_bin, args.benchmark_filter)
+        #             result = run_benchmark(config_path, benchmark_bin, args.benchmark_filter)
 
-                    run_id = (
-                        f"ucs-{int(use_custom_syscall)}_"
-                        f"mindem-{min_demotion}_"
-                        f"minpro-{min_promotion}_"
-                        f"mm-{migration_mode}_"
-                        f"mmbs-{migration_max_bs}"
-                    )
+        #             run_id = (
+        #                 f"ucs-{int(use_custom_syscall)}_"
+        #                 f"mindem-{min_demotion}_"
+        #                 f"minpro-{min_promotion}_"
+        #                 f"mm-{migration_mode}_"
+        #                 f"mmbs-{migration_max_bs}"
+        #             )
 
-                    output_path = output_dir / f"run_{timestamp}_{run_id}.txt"
-                    with output_path.open("w", encoding="utf-8") as out:
-                        out.write("CONFIG\n")
-                        out.write(json.dumps(current_config, indent=2))
-                        out.write("\n\nSTDOUT\n")
-                        out.write(result.stdout)
-                        out.write("\n\nSTDERR\n")
-                        out.write(result.stderr)
+        #             output_path = output_dir / f"run_{timestamp}_{run_id}.txt"
+        #             with output_path.open("w", encoding="utf-8") as out:
+        #                 out.write("CONFIG\n")
+        #                 out.write(json.dumps(current_config, indent=2))
+        #                 out.write("\n\nSTDOUT\n")
+        #                 out.write(result.stdout)
+        #                 out.write("\n\nSTDERR\n")
+        #                 out.write(result.stderr)
 
-                    summary_record = {
-                        "run_id": run_id,
-                        "config": current_config,
-                        "return_code": result.returncode,
-                        "output_file": str(output_path),
-                    }
-                    with summary_path.open("a", encoding="utf-8") as summary:
-                        summary.write(json.dumps(summary_record))
-                        summary.write("\n")
+        #             summary_record = {
+        #                 "run_id": run_id,
+        #                 "config": current_config,
+        #                 "return_code": result.returncode,
+        #                 "output_file": str(output_path),
+        #             }
+        #             with summary_path.open("a", encoding="utf-8") as summary:
+        #                 summary.write(json.dumps(summary_record))
+        #                 summary.write("\n")
 
         # Single run with enable_batch_eviction and enable_batch_promotion disabled
         print("Running benchmark with enable_batch_eviction=false and enable_batch_promotion=false...")

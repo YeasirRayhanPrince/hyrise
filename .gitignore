@@ -51,3 +51,5 @@ ssb_data/
 ssd/
 build/
 venv/
+benchmark_results/
+benchmark_plots/
