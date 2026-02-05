@@ -1,0 +1,306 @@
+CONFIG
+{
+  "dram_buffer_pool_size": 2147483648,
+  "numa_buffer_pool_size": 10737418240,
+  "ssd_path": "/users/yrayhan/hyrise/ssd",
+  "enable_eviction_purge_worker": false,
+  "memory_node": 1,
+  "cpu_node": 0,
+  "enable_numa": true,
+  "enable_batch_eviction": true,
+  "enable_batch_promotion": true,
+  "use_custom_syscall": false,
+  "enable_migration_profiling": true,
+  "min_demotion_batch_size": 32,
+  "min_promotion_batch_size": 32,
+  "max_demotion_queue_scan_multiplier": 16,
+  "max_promotion_queue_scan_multiplier": 16,
+  "migration_mode": 0,
+  "migration_max_bs": 256,
+  "loader_threads": 16,
+  "migration_policy": {
+    "dram_read_ratio": 0.5,
+    "dram_write_ratio": 0.5,
+    "numa_read_ratio": 0.5,
+    "numa_write_ratio": 0.5
+  }
+}
+
+STDOUT
+
+=== Buffer Manager Configuration ===
+DRAM pool size: 2048 MB
+NUMA pool size: 10240 MB
+NUMA enabled: true
+Batch eviction enabled: true
+Batch promotion enabled: true
+CPU node: 0
+Memory node: 1
+Migration policy:
+  DRAM read ratio: 0.5
+  DRAM write ratio: 0.5
+  NUMA read ratio: 0.5
+  NUMA write ratio: 0.5
+Batch settings:
+  Min demotion batch size: 32
+  Min promotion batch size: 32
+  Max demotion queue scan multiplier: 16
+  Max promotion queue scan multiplier: 16
+Custom syscall settings:
+  Use custom syscall: false
+Migration profiling enabled: true
+  Migration mode: 0
+  Migration max batch size: 256
+=====================================
+
+
+=== Buffer Manager Configuration ===
+DRAM pool size: 2048 MB
+NUMA pool size: 10240 MB
+NUMA enabled: true
+Batch eviction enabled: true
+Batch promotion enabled: true
+CPU node: 0
+Memory node: 1
+Migration policy:
+  DRAM read ratio: 0.5
+  DRAM write ratio: 0.5
+  NUMA read ratio: 0.5
+  NUMA write ratio: 0.5
+Batch settings:
+  Min demotion batch size: 32
+  Min promotion batch size: 32
+  Max demotion queue scan multiplier: 16
+  Max promotion queue scan multiplier: 16
+Custom syscall settings:
+  Use custom syscall: false
+Migration profiling enabled: true
+  Migration mode: 0
+  Migration max batch size: 256
+=====================================
+
+
+=== Batch Eviction Statistics ===
+DRAM Pool:
+  Total batch evictions: 0
+  Total pages batched: 0
+  Average batch size: 0
+NUMA Pool:
+  Total batch evictions: 0
+  Total pages batched: 0
+  Average batch size: 0
+=================================
+
+=== Batch Promotion Statistics ===
+NUMA Pool (source for promotion to DRAM):
+  Total batch promotions: 0
+  Total pages promoted: 0
+  Average batch size: 0
+=================================
+
+
+=== Migration Profiler: No samples recorded ===
+
+=== Buffer Manager Configuration ===
+DRAM pool size: 2048 MB
+NUMA pool size: 10240 MB
+NUMA enabled: true
+Batch eviction enabled: true
+Batch promotion enabled: true
+CPU node: 0
+Memory node: 1
+Migration policy:
+  DRAM read ratio: 0.5
+  DRAM write ratio: 0.5
+  NUMA read ratio: 0.5
+  NUMA write ratio: 0.5
+Batch settings:
+  Min demotion batch size: 32
+  Min promotion batch size: 32
+  Max demotion queue scan multiplier: 16
+  Max promotion queue scan multiplier: 16
+Custom syscall settings:
+  Use custom syscall: false
+Migration profiling enabled: true
+  Migration mode: 0
+  Migration max batch size: 256
+=====================================
+
+
+=== Batch Eviction Statistics ===
+DRAM Pool:
+  Total batch evictions: 0
+  Total pages batched: 0
+  Average batch size: 0
+NUMA Pool:
+  Total batch evictions: 0
+  Total pages batched: 0
+  Average batch size: 0
+=================================
+
+=== Batch Promotion Statistics ===
+NUMA Pool (source for promotion to DRAM):
+  Total batch promotions: 0
+  Total pages promoted: 0
+  Average batch size: 0
+=================================
+
+
+=== Migration Profiler: No samples recorded ===
+[YCSB Loader] Starting parallel loading with 16 threads. Target size: 16.00 GB
+  [Thread 1] Loaded 100000 total tuples (~0.38 GB)
+  [Thread 11] Loaded 200000 total tuples (~0.76 GB)
+  [Thread 13] Loaded 300000 total tuples (~1.14 GB)
+  [Thread 8] Loaded 400000 total tuples (~1.53 GB)
+  [Thread 14] Loaded 500000 total tuples (~1.91 GB)
+  [Thread 7] Loaded 600000 total tuples (~2.29 GB)
+  [Thread 6] Loaded 700000 total tuples (~2.67 GB)
+  [Thread 2] Loaded 800000 total tuples (~3.05 GB)
+  [Thread 7] Loaded 900000 total tuples (~3.43 GB)
+  [Thread 7] Loaded 1000000 total tuples (~3.81 GB)
+  [Thread 11] Loaded 1100000 total tuples (~4.20 GB)
+  [Thread 4] Loaded 1200000 total tuples (~4.58 GB)
+  [Thread 3] Loaded 1300000 total tuples (~4.96 GB)
+  [Thread 0] Loaded 1400000 total tuples (~5.34 GB)
+  [Thread 12] Loaded 1500000 total tuples (~5.72 GB)
+  [Thread 1] Loaded 1600000 total tuples (~6.10 GB)
+  [Thread 14] Loaded 1700000 total tuples (~6.49 GB)
+  [Thread 0] Loaded 1800000 total tuples (~6.87 GB)
+  [Thread 3] Loaded 1900000 total tuples (~7.25 GB)
+  [Thread 14] Loaded 2000000 total tuples (~7.63 GB)
+  [Thread 13] Loaded 2100000 total tuples (~8.01 GB)
+  [Thread 0] Loaded 2200000 total tuples (~8.39 GB)
+  [Thread 5] Loaded 2300000 total tuples (~8.77 GB)
+  [Thread 1] Loaded 2400000 total tuples (~9.16 GB)
+  [Thread 13] Loaded 2500000 total tuples (~9.54 GB)
+  [Thread 13] Loaded 2600000 total tuples (~9.92 GB)
+  [Thread 5] Loaded 2700000 total tuples (~10.30 GB)
+  [Thread 7] Loaded 2800000 total tuples (~10.68 GB)
+  [Thread 14] Loaded 2900000 total tuples (~11.06 GB)
+  [Thread 10] Loaded 3000000 total tuples (~11.44 GB)
+  [Thread 8] Loaded 3100000 total tuples (~11.83 GB)
+  [Thread 7] Loaded 3200000 total tuples (~12.21 GB)
+  [Thread 11] Loaded 3300000 total tuples (~12.59 GB)
+  [Thread 6] Loaded 3400000 total tuples (~12.97 GB)
+  [Thread 14] Loaded 3500000 total tuples (~13.35 GB)
+  [Thread 2] Loaded 3600000 total tuples (~13.73 GB)
+  [Thread 9] Loaded 3700000 total tuples (~14.11 GB)
+  [Thread 1] Loaded 3800000 total tuples (~14.50 GB)
+  [Thread 10] Loaded 3900000 total tuples (~14.88 GB)
+  [Thread 15] Loaded 4000000 total tuples (~15.26 GB)
+  [Thread 14] Loaded 4100000 total tuples (~15.64 GB)
+[YCSB Loader] Parallel loading complete (16 threads). Loaded 4194304 tuples (~16.00 GB) in 343.18 seconds (~0.05 GB/s)
+---------------------------------------------------------------------------------------------------------------------------------------------------
+Benchmark                                                                                         Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------------------------------------------------------------------------
+BM_ycsb/UpdateHeavy/CustomMigrationPolicy/16/iterations:1/repeats:1/real_time/threads:11 6.7019e+10 ns   3.9490e+11 ns           11 bytes_per_second=82.7924M/s bytes_read_from_ssd=15.0133G bytes_written_to_ssd=11.0515G cache_hit_rate=0.992826 items_per_second=1.35647M/s latency_95percentile=10.983k latency_max=614.99M latency_mean=8.04122k latency_median=2.153k latency_min=147 latency_stddev=305.568k
+
+=== Batch Eviction Statistics ===
+DRAM Pool:
+  Total batch evictions: 614178
+  Total pages batched: 7253548
+  Average batch size: 11.81
+NUMA Pool:
+  Total batch evictions: 0
+  Total pages batched: 0
+  Average batch size: 0.00
+=================================
+
+=== Batch Promotion Statistics ===
+NUMA Pool (source for promotion to DRAM):
+  Total batch promotions: 129779
+  Total pages promoted: 3802536
+  Average batch size: 29.30
+=================================
+
+
+=== Migration Profiler Summary ===
+Total samples: 6828735 (Batch: 361808, Single: 6466927)
+
+--- BATCH MIGRATION ---
+  Samples: 361808
+  Total pages migrated: 5057170
+  Total bytes migrated: 19754.57 MB
+  Total syscalls: 361808
+  Avg pages per operation: 13.98
+  Syscall type: move_pages
+
+  Average timings (microseconds):
+    Queue scan:      411.34 us
+    Locking:         0.83 us
+    Grouping:        2.52 us
+    Dirty check:     0.00 us
+    Array build:     0.38 us
+    Syscall:         216.79 us
+    Metadata update: 0.60 us
+    Unlock:          2.42 us
+    TOTAL:           634.89 us
+
+  Time breakdown (%):
+    Syscall:         34.15%
+    Application:     65.85%
+
+--- SINGLE-PAGE MIGRATION ---
+  Samples: 6466927
+  Total pages migrated: 6466927
+  Total bytes migrated: 25261.43 MB
+  Total syscalls: 6466927
+  Avg pages per operation: 1.00
+  Syscall type: mbind
+
+  Average timings (microseconds):
+    Queue scan:      26.78 us
+    Locking:         0.00 us
+    Grouping:        0.00 us
+    Dirty check:     0.00 us
+    Array build:     0.46 us
+    Syscall:         86.39 us
+    Metadata update: 0.16 us
+    Unlock:          0.00 us
+    TOTAL:           113.79 us
+
+  Time breakdown (%):
+    Syscall:         75.92%
+    Application:     24.08%
+====================================
+
+
+
+STDERR
+The number of inputs is very large. BM_SequentialRead/SSDToDRAM will be repeated at least 250 times.
+The number of inputs is very large. BM_SequentialRead/SSDToCXL will be repeated at least 250 times.
+The number of inputs is very large. BM_SequentialRead/CXLToDRAM will be repeated at least 250 times.
+The number of inputs is very large. BM_SequentialRead/DRAMToCXL will be repeated at least 250 times.
+The number of inputs is very large. BM_SequentialRead/CXL will be repeated at least 250 times.
+The number of inputs is very large. BM_SequentialRead/DRAM will be repeated at least 250 times.
+The number of inputs is very large. BM_allocate_vector/JemallocBufferManagerInt will be repeated at least 624 times.
+The number of inputs is very large. BM_allocate_vector/DefaultJemallocInt will be repeated at least 624 times.
+The number of inputs is very large. BM_allocate_vector/JemallocBufferManagerShortString will be repeated at least 624 times.
+The number of inputs is very large. BM_allocate_vector/DefaultJemallocShortString will be repeated at least 624 times.
+The number of inputs is very large. BM_allocate_vector/JemallocBufferManagerLongString will be repeated at least 624 times.
+The number of inputs is very large. BM_allocate_vector/DefaultJemallocLongString will be repeated at least 624 times.
+The number of inputs is very large. BM_ycsb/UpdateHeavy/LazyMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/ReadMostly/LazyMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/Scan/LazyMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/UpdateHeavy/EagerMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/ReadMostly/EagerMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/Scan/EagerMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/UpdateHeavy/DramOnlyMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/ReadMostly/DramOnlyMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/Scan/DramOnlyMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/UpdateHeavy/NumaOnlyMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/ReadMostly/NumaOnlyMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/Scan/NumaOnlyMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/UpdateHeavy/CustomMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/ReadMostly/CustomMigrationPolicy will be repeated at least 225 times.
+The number of inputs is very large. BM_ycsb/Scan/CustomMigrationPolicy will be repeated at least 225 times.
+2026-02-02T17:51:48-06:00
+Running /users/yrayhan/hyrise/cmake-build-debug/hyriseBenchmarkBufferManager
+Run on (64 X 3400 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x32)
+  L1 Instruction 32 KiB (x32)
+  L2 Unified 1280 KiB (x32)
+  L3 Unified 24576 KiB (x2)
+Load Average: 8.68, 10.19, 9.22
+***WARNING*** CPU scaling is enabled, the benchmark real time measurements may be noisy and will incur extra overhead.

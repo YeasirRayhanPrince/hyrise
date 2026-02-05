@@ -1,22 +1,33 @@
+# install matplotlib for plot generation
 source venv/bin/activate && pip install matplotlib
+source venv/bin/activate && python scripts/plot_benchmark_results.py --timestamps 20260204_065718 --output-dir /users/yrayhan/hyrise/benchmark_plots
+source venv/bin/activate && python scripts/plot_total_syscalls.py --timestamps 20260204_065718 --output-dir /users/yrayhan/hyrise/benchmark_plots
+source venv/bin/activate && python scripts/plot_time_breakdown.py --timestamps 20260204_065718 --output-dir /users/yrayhan/hyrise/benchmark_plots
 
+# install venv for pip install 
 sudo apt install -y python3.12-venv
 python3 -m venv venv
 source venv/bin/activate && pip3 install -r requirements.txt
 
-source venv/bin/activate && python scripts/plot_benchmark_results.py --timestamps 20260203_052559 20260203_082028 --output-dir /users/yrayhan/hyrise/benchmark_plots
-source venv/bin/activate && python scripts/plot_total_syscalls.py --timestamps 20260203_052559 --output-dir /users/yrayhan/hyrise/benchmark_plots
-source venv/bin/activate && python scripts/plot_time_breakdown.py --timestamps 20260203_052559 --output-dir /users/yrayhan/hyrise/benchmark_plots
 
+
+# install if clang is not available from scratch
+./install_dependencies.sh
 sudo apt-get install -y autoconf bash-completion bc cmake curl dos2unix gcovr git graphviz libboost-all-dev libhwloc-dev libncurses-dev libnuma-dev libnuma1 libpq-dev libreadline-dev libsqlite3-dev libtbb-dev lld man parallel postgresql-server-dev-all python3 python3-pip valgrind clang clang-format clang-tidy g++ gcc llvm llvm-dev
 sudo apt-get install -y cmake clang g++ gcc git libnuma-dev libtbb-dev libreadline-dev libjemalloc-dev libzstd-dev ninja-build
 sudo apt-get install -y sqlite3 libsqlite3-dev
-./install_dependencies.sh
 
- cd /users/yrayhan/hyrise/cmake-build-debug && cmake -DCMAKE_BUILD_TYPE=Debug ..
- cd /users/yrayhan/hyrise/cmake-build-debug && cmake -DCMAKE_BUILD_TYPE=Release .. 
 
-  cd /users/yrayhan/hyrise/cmake-build-debug && rm -rf CMakeCache.txt CMakeFiles && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release ..
+cd /users/yrayhan/hyrise/cmake-build-debug && cmake -DCMAKE_BUILD_TYPE=Debug ..
+cd /users/yrayhan/hyrise/cmake-build-debug && cmake -DCMAKE_BUILD_TYPE=Release .. 
+
+Uce gcc for running 
+gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0
+Copyright (C) 2023 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+cd /users/yrayhan/hyrise/cmake-build-debug && rm -rf CMakeCache.txt CMakeFiles && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release ..
 ================================================================================
 KERNEL TUNING
 ================================================================================
@@ -53,7 +64,8 @@ cat /proc/sys/vm/max_map_count
 cd /users/yrayhan/hyrise/cmake-build-release && make -j$(nproc) hyriseBenchmarkBufferManager
 
 # check benchmark
-/users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter=BM_ycsb --benchmark_list_tests
+export HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json
+/users/yrayhan/hyrise/cmake-build-debug/hyriseBenchmarkBufferManager --benchmark_filter=BM_ycsb --benchmark_list_tests
 
 # run a particular benchmark
 export HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json

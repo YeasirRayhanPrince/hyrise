@@ -1,0 +1,348 @@
+CONFIG
+{
+  "dram_buffer_pool_size": 4294967296,
+  "numa_buffer_pool_size": 12884901888,
+  "ssd_path": "/users/yrayhan/hyrise/ssd",
+  "enable_eviction_purge_worker": false,
+  "memory_node": 1,
+  "cpu_node": 0,
+  "enable_numa": true,
+  "enable_batch_eviction": true,
+  "enable_batch_promotion": true,
+  "use_custom_syscall": false,
+  "enable_migration_profiling": true,
+  "min_demotion_batch_size": 64,
+  "min_promotion_batch_size": 64,
+  "max_demotion_queue_scan_multiplier": 16,
+  "max_promotion_queue_scan_multiplier": 16,
+  "migration_mode": 0,
+  "migration_max_bs": 64,
+  "loader_threads": 48,
+  "migration_policy": {
+    "dram_read_ratio": 0.5,
+    "dram_write_ratio": 0.5,
+    "numa_read_ratio": 0.5,
+    "numa_write_ratio": 0.5
+  }
+}
+
+STDOUT
+
+=== Buffer Manager Configuration ===
+DRAM pool size: 4096 MB
+NUMA pool size: 12288 MB
+NUMA enabled: true
+Batch eviction enabled: true
+Batch promotion enabled: true
+CPU node: 0
+Memory node: 1
+Migration policy:
+  DRAM read ratio: 0.5
+  DRAM write ratio: 0.5
+  NUMA read ratio: 0.5
+  NUMA write ratio: 0.5
+Batch settings:
+  Min demotion batch size: 64
+  Min promotion batch size: 64
+  Max demotion queue scan multiplier: 16
+  Max promotion queue scan multiplier: 16
+Custom syscall settings:
+  Use custom syscall: false
+Migration profiling enabled: true
+  Migration mode: 0
+  Migration max batch size: 64
+=====================================
+
+
+=== Buffer Manager Configuration ===
+DRAM pool size: 4096 MB
+NUMA pool size: 12288 MB
+NUMA enabled: true
+Batch eviction enabled: true
+Batch promotion enabled: true
+CPU node: 0
+Memory node: 1
+Migration policy:
+  DRAM read ratio: 0.5
+  DRAM write ratio: 0.5
+  NUMA read ratio: 0.5
+  NUMA write ratio: 0.5
+Batch settings:
+  Min demotion batch size: 64
+  Min promotion batch size: 64
+  Max demotion queue scan multiplier: 16
+  Max promotion queue scan multiplier: 16
+Custom syscall settings:
+  Use custom syscall: false
+Migration profiling enabled: true
+  Migration mode: 0
+  Migration max batch size: 64
+=====================================
+
+
+=== Batch Eviction Statistics ===
+DRAM Pool:
+  Total batch evictions: 0
+  Total pages batched: 0
+  Average batch size: 0
+NUMA Pool:
+  Total batch evictions: 0
+  Total pages batched: 0
+  Average batch size: 0
+=================================
+
+=== Batch Promotion Statistics ===
+NUMA Pool (source for promotion to DRAM):
+  Total batch promotions: 0
+  Total pages promoted: 0
+  Average batch size: 0
+=================================
+
+
+=== Migration Profiler: No samples recorded ===
+
+=== Buffer Manager Configuration ===
+DRAM pool size: 4096 MB
+NUMA pool size: 12288 MB
+NUMA enabled: true
+Batch eviction enabled: true
+Batch promotion enabled: true
+CPU node: 0
+Memory node: 1
+Migration policy:
+  DRAM read ratio: 0.5
+  DRAM write ratio: 0.5
+  NUMA read ratio: 0.5
+  NUMA write ratio: 0.5
+Batch settings:
+  Min demotion batch size: 64
+  Min promotion batch size: 64
+  Max demotion queue scan multiplier: 16
+  Max promotion queue scan multiplier: 16
+Custom syscall settings:
+  Use custom syscall: false
+Migration profiling enabled: true
+  Migration mode: 0
+  Migration max batch size: 64
+=====================================
+
+
+=== Batch Eviction Statistics ===
+DRAM Pool:
+  Total batch evictions: 0
+  Total pages batched: 0
+  Average batch size: 0
+NUMA Pool:
+  Total batch evictions: 0
+  Total pages batched: 0
+  Average batch size: 0
+=================================
+
+=== Batch Promotion Statistics ===
+NUMA Pool (source for promotion to DRAM):
+  Total batch promotions: 0
+  Total pages promoted: 0
+  Average batch size: 0
+=================================
+
+
+=== Migration Profiler: No samples recorded ===
+[YCSB Loader] Starting parallel loading with 48 threads. Target size: 32.00 GB
+  [Thread 13] Loaded 100000 total tuples (~0.38 GB)
+  [Thread 5] Loaded 200000 total tuples (~0.76 GB)
+  [Thread 25] Loaded 300000 total tuples (~1.14 GB)
+  [Thread 17] Loaded 400000 total tuples (~1.53 GB)
+  [Thread 37] Loaded 500000 total tuples (~1.91 GB)
+  [Thread 36] Loaded 600000 total tuples (~2.29 GB)
+  [Thread 8] Loaded 700000 total tuples (~2.67 GB)
+  [Thread 34] Loaded 800000 total tuples (~3.05 GB)
+  [Thread 4] Loaded 900000 total tuples (~3.43 GB)
+  [Thread 14] Loaded 1000000 total tuples (~3.81 GB)
+  [Thread 0] Loaded 1100000 total tuples (~4.20 GB)
+  [Thread 10] Loaded 1200000 total tuples (~4.58 GB)
+  [Thread 22] Loaded 1300000 total tuples (~4.96 GB)
+  [Thread 25] Loaded 1400000 total tuples (~5.34 GB)
+  [Thread 11] Loaded 1500000 total tuples (~5.72 GB)
+  [Thread 12] Loaded 1600000 total tuples (~6.10 GB)
+  [Thread 21] Loaded 1700000 total tuples (~6.49 GB)
+  [Thread 5] Loaded 1800000 total tuples (~6.87 GB)
+  [Thread 28] Loaded 1900000 total tuples (~7.25 GB)
+  [Thread 27] Loaded 2000000 total tuples (~7.63 GB)
+  [Thread 23] Loaded 2100000 total tuples (~8.01 GB)
+  [Thread 7] Loaded 2200000 total tuples (~8.39 GB)
+  [Thread 39] Loaded 2300000 total tuples (~8.77 GB)
+  [Thread 8] Loaded 2400000 total tuples (~9.16 GB)
+  [Thread 14] Loaded 2500000 total tuples (~9.54 GB)
+  [Thread 27] Loaded 2600000 total tuples (~9.92 GB)
+  [Thread 17] Loaded 2700000 total tuples (~10.30 GB)
+  [Thread 23] Loaded 2800000 total tuples (~10.68 GB)
+  [Thread 20] Loaded 2900000 total tuples (~11.06 GB)
+  [Thread 1] Loaded 3000000 total tuples (~11.44 GB)
+  [Thread 30] Loaded 3100000 total tuples (~11.83 GB)
+  [Thread 47] Loaded 3200000 total tuples (~12.21 GB)
+  [Thread 15] Loaded 3300000 total tuples (~12.59 GB)
+  [Thread 27] Loaded 3400000 total tuples (~12.97 GB)
+  [Thread 29] Loaded 3500000 total tuples (~13.35 GB)
+  [Thread 46] Loaded 3600000 total tuples (~13.73 GB)
+  [Thread 0] Loaded 3700000 total tuples (~14.11 GB)
+  [Thread 12] Loaded 3800000 total tuples (~14.50 GB)
+  [Thread 11] Loaded 3900000 total tuples (~14.88 GB)
+  [Thread 39] Loaded 4000000 total tuples (~15.26 GB)
+  [Thread 29] Loaded 4100000 total tuples (~15.64 GB)
+  [Thread 31] Loaded 4200000 total tuples (~16.02 GB)
+  [Thread 43] Loaded 4300000 total tuples (~16.40 GB)
+  [Thread 20] Loaded 4400000 total tuples (~16.78 GB)
+  [Thread 11] Loaded 4500000 total tuples (~17.17 GB)
+  [Thread 47] Loaded 4600000 total tuples (~17.55 GB)
+  [Thread 26] Loaded 4700000 total tuples (~17.93 GB)
+  [Thread 32] Loaded 4800000 total tuples (~18.31 GB)
+  [Thread 47] Loaded 4900000 total tuples (~18.69 GB)
+  [Thread 39] Loaded 5000000 total tuples (~19.07 GB)
+  [Thread 0] Loaded 5100000 total tuples (~19.46 GB)
+  [Thread 25] Loaded 5200000 total tuples (~19.84 GB)
+  [Thread 23] Loaded 5300000 total tuples (~20.22 GB)
+  [Thread 19] Loaded 5400000 total tuples (~20.60 GB)
+  [Thread 2] Loaded 5500000 total tuples (~20.98 GB)
+  [Thread 34] Loaded 5600000 total tuples (~21.36 GB)
+  [Thread 3] Loaded 5700000 total tuples (~21.74 GB)
+  [Thread 22] Loaded 5800000 total tuples (~22.13 GB)
+  [Thread 23] Loaded 5900000 total tuples (~22.51 GB)
+  [Thread 30] Loaded 6000000 total tuples (~22.89 GB)
+  [Thread 32] Loaded 6100000 total tuples (~23.27 GB)
+  [Thread 5] Loaded 6200000 total tuples (~23.65 GB)
+  [Thread 45] Loaded 6300000 total tuples (~24.03 GB)
+  [Thread 41] Loaded 6400000 total tuples (~24.41 GB)
+  [Thread 9] Loaded 6500000 total tuples (~24.80 GB)
+  [Thread 39] Loaded 6600000 total tuples (~25.18 GB)
+  [Thread 20] Loaded 6700000 total tuples (~25.56 GB)
+  [Thread 15] Loaded 6800000 total tuples (~25.94 GB)
+  [Thread 29] Loaded 6900000 total tuples (~26.32 GB)
+  [Thread 7] Loaded 7000000 total tuples (~26.70 GB)
+  [Thread 20] Loaded 7100000 total tuples (~27.08 GB)
+  [Thread 22] Loaded 7200000 total tuples (~27.47 GB)
+  [Thread 18] Loaded 7300000 total tuples (~27.85 GB)
+  [Thread 34] Loaded 7400000 total tuples (~28.23 GB)
+  [Thread 42] Loaded 7500000 total tuples (~28.61 GB)
+  [Thread 4] Loaded 7600000 total tuples (~28.99 GB)
+  [Thread 45] Loaded 7700000 total tuples (~29.37 GB)
+  [Thread 30] Loaded 7800000 total tuples (~29.75 GB)
+  [Thread 24] Loaded 7900000 total tuples (~30.14 GB)
+  [Thread 32] Loaded 8000000 total tuples (~30.52 GB)
+  [Thread 41] Loaded 8100000 total tuples (~30.90 GB)
+  [Thread 46] Loaded 8200000 total tuples (~31.28 GB)
+  [Thread 32] Loaded 8300000 total tuples (~31.66 GB)
+[YCSB Loader] Parallel loading complete (48 threads). Loaded 8388608 tuples (~32.00 GB) in 1488.74 seconds (~0.02 GB/s)
+--------------------------------------------------------------------------------------------------------------------------------------------
+Benchmark                                                                                  Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------------------------------------------------------------------
+BM_ycsb/Scan/CustomMigrationPolicy/32/iterations:1/repeats:1/real_time/threads:48 4266805267 ns   2.3076e+10 ns           48 bytes_per_second=1.75372G/s bytes_read_from_ssd=14.2261G bytes_written_to_ssd=15.1504G cache_hit_rate=0.802584 items_per_second=488.265k/s latency_95percentile=6.527k latency_max=2.29219G latency_mean=98.1773k latency_median=1.721k latency_min=153 latency_stddev=3.07138M
+
+=== Batch Eviction Statistics ===
+DRAM Pool:
+  Total batch evictions: 126958
+  Total pages batched: 7669074
+  Average batch size: 60.41
+NUMA Pool:
+  Total batch evictions: 2322
+  Total pages batched: 147995
+  Average batch size: 63.74
+=================================
+
+=== Batch Promotion Statistics ===
+NUMA Pool (source for promotion to DRAM):
+  Total batch promotions: 88564
+  Total pages promoted: 2697798
+  Average batch size: 30.46
+=================================
+
+
+=== Migration Profiler Summary ===
+Total samples: 4117476 (Batch: 41179, Single: 4076297)
+
+--- BATCH MIGRATION ---
+  Samples: 41179
+  Total pages migrated: 1774261
+  Total bytes migrated: 6930.71 MB
+  Total syscalls: 41179
+  Avg pages per operation: 43.09
+  Syscall type: move_pages
+
+  Average timings (microseconds):
+    Queue scan:      4277.71 us
+    Locking:         3.68 us
+    Grouping:        6.92 us
+    Dirty check:     0.00 us
+    Array build:     1.14 us
+    Syscall:         1011.49 us
+    Metadata update: 2.65 us
+    Unlock:          10.93 us
+    TOTAL:           5314.52 us
+
+  Time breakdown (%):
+    Syscall:         19.03%
+    Application:     80.97%
+
+--- SINGLE-PAGE MIGRATION ---
+  Samples: 4076297
+  Total pages migrated: 4076297
+  Total bytes migrated: 15923.04 MB
+  Total syscalls: 4076297
+  Avg pages per operation: 1.00
+  Syscall type: mbind
+
+  Average timings (microseconds):
+    Queue scan:      0.27 us
+    Locking:         0.00 us
+    Grouping:        0.00 us
+    Dirty check:     0.00 us
+    Array build:     0.56 us
+    Syscall:         200.35 us
+    Metadata update: 0.22 us
+    Unlock:          0.00 us
+    TOTAL:           201.40 us
+
+  Time breakdown (%):
+    Syscall:         99.48%
+    Application:     0.52%
+====================================
+
+
+
+STDERR
+The number of inputs is very large. BM_SequentialRead/SSDToDRAM will be repeated at least 250 times.
+The number of inputs is very large. BM_SequentialRead/SSDToCXL will be repeated at least 250 times.
+The number of inputs is very large. BM_SequentialRead/CXLToDRAM will be repeated at least 250 times.
+The number of inputs is very large. BM_SequentialRead/DRAMToCXL will be repeated at least 250 times.
+The number of inputs is very large. BM_SequentialRead/CXL will be repeated at least 250 times.
+The number of inputs is very large. BM_SequentialRead/DRAM will be repeated at least 250 times.
+The number of inputs is very large. BM_allocate_vector/JemallocBufferManagerInt will be repeated at least 624 times.
+The number of inputs is very large. BM_allocate_vector/DefaultJemallocInt will be repeated at least 624 times.
+The number of inputs is very large. BM_allocate_vector/JemallocBufferManagerShortString will be repeated at least 624 times.
+The number of inputs is very large. BM_allocate_vector/DefaultJemallocShortString will be repeated at least 624 times.
+The number of inputs is very large. BM_allocate_vector/JemallocBufferManagerLongString will be repeated at least 624 times.
+The number of inputs is very large. BM_allocate_vector/DefaultJemallocLongString will be repeated at least 624 times.
+The number of inputs is very large. BM_ycsb/UpdateHeavy/LazyMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/ReadMostly/LazyMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/Scan/LazyMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/UpdateHeavy/EagerMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/ReadMostly/EagerMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/Scan/EagerMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/UpdateHeavy/DramOnlyMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/ReadMostly/DramOnlyMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/Scan/DramOnlyMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/UpdateHeavy/NumaOnlyMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/ReadMostly/NumaOnlyMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/Scan/NumaOnlyMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/UpdateHeavy/CustomMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/ReadMostly/CustomMigrationPolicy will be repeated at least 432 times.
+The number of inputs is very large. BM_ycsb/Scan/CustomMigrationPolicy will be repeated at least 432 times.
+2026-02-04T15:01:48-06:00
+Running /users/yrayhan/hyrise/cmake-build-debug/hyriseBenchmarkBufferManager
+Run on (64 X 3400 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x32)
+  L1 Instruction 32 KiB (x32)
+  L2 Unified 1280 KiB (x32)
+  L3 Unified 24576 KiB (x2)
+Load Average: 35.27, 25.75, 14.50
+***WARNING*** CPU scaling is enabled, the benchmark real time measurements may be noisy and will incur extra overhead.

@@ -23,10 +23,53 @@ def parse_args():
         default="/users/yrayhan/hyrise/cmake-build-debug/hyriseBenchmarkBufferManager",
         help="Path to benchmark binary.",
     )
+    
+    parser.add_argument(
+        "--workload",
+        default="ReadMostly",
+        choices=["UpdateHeavy", "Scan", "ReadMostly"],
+        help="YCSB workload to run (UpdateHeavy, Scan, ReadMostly).",
+    )
+    parser.add_argument(
+        "--migration-policy",
+        default="CustomMigrationPolicy",
+        choices=[
+            "LazyMigrationPolicy",
+            "EagerMigrationPolicy",
+            "DramOnlyMigrationPolicy",
+            "NumaOnlyMigrationPolicy",
+            "CustomMigrationPolicy",
+        ],
+        help="Migration policy to use for the benchmark filter.",
+    )
+    parser.add_argument(
+        "--database-size",
+        type=int,
+        default=32,
+        help="Database size in GB for the benchmark filter.",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=1,
+        help="Benchmark iterations for the benchmark filter.",
+    )
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="Benchmark repeats for the benchmark filter.",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=48,
+        help="Benchmark thread count for the benchmark filter.",
+    )
     parser.add_argument(
         "--benchmark-filter",
-        default="BM_ycsb/UpdateHeavy/CustomMigrationPolicy/32/iterations:1/repeats:1/real_time/threads:48",
-        help="Google benchmark filter string.",
+        default=None,
+        help="Google benchmark filter string. If omitted, generated from inputs.",
     )
     parser.add_argument(
         "--output-dir",
@@ -56,17 +99,24 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    benchmark_filter = args.benchmark_filter or (
+        f"BM_ycsb/{args.workload}/{args.migration_policy}/{args.database_size}/"
+        f"iterations:{args.iterations}/repeats:{args.repeats}/real_time/threads:{args.threads}"
+    )
+
     with config_path.open("r", encoding="utf-8") as f:
         original_config = json.load(f)
 
     # Define sweep values here
     batch_sizes = [
-        32, 
-        64, 
-        128, 
-        256, 
-        512
-        ]
+        32,
+        64,
+        128,
+        256,
+        512,
+        1024,
+        2048,
+    ]
     migration_modes = [0, 1, 2]
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -95,7 +145,7 @@ def main():
                         json.dump(current_config, f, indent=2)
                         f.write("\n")
 
-                    result = run_benchmark(config_path, benchmark_bin, args.benchmark_filter)
+                    result = run_benchmark(config_path, benchmark_bin, benchmark_filter)
 
                     run_id = (
                         f"ucs-{int(use_custom_syscall)}_"
@@ -134,7 +184,7 @@ def main():
             json.dump(current_config, f, indent=2)
             f.write("\n")
 
-        result = run_benchmark(config_path, benchmark_bin, args.benchmark_filter)
+        result = run_benchmark(config_path, benchmark_bin, benchmark_filter)
 
         run_id = "nobatch"
 
