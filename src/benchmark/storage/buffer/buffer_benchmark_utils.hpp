@@ -20,6 +20,7 @@
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -955,9 +956,11 @@ inline TPCCTablePages generate_tpcc_table_generic(
     const std::string& name,
     size_t row_size,
     size_t total_rows,
-    std::function<void(std::byte*, size_t, TPCCRandomGenerator&)> populate_row) {
+    std::function<void(std::byte*, size_t, TPCCRandomGenerator&)> populate_row,
+    size_t loader_threads = 1) {
 
   constexpr auto PAGE_SIZE = bytes_for_size_type(MIN_PAGE_SIZE_TYPE);
+  constexpr uint32_t TPCC_TABLE_LOAD_SEED = 42;
 
   TPCCTablePages table;
   table.name = name;
@@ -968,32 +971,60 @@ inline TPCCTablePages generate_tpcc_table_generic(
   DebugAssert(table.rows_per_page > 0, "No rows fit in a page for table: " + name);
 
   const size_t num_pages = (total_rows + table.rows_per_page - 1) / table.rows_per_page;
-  table.pages.reserve(num_pages);
+  table.pages.resize(num_pages);
 
-  TPCCRandomGenerator rng;
+  if (num_pages == 0) {
+    return table;
+  }
 
-  for (size_t page_idx = 0; page_idx < num_pages; ++page_idx) {
-    auto* page = reinterpret_cast<std::byte*>(
-        memory_resource->allocate(PAGE_SIZE, CACHE_LINE_SIZE));
-    Assert(page != nullptr, "Allocation failed for table: " + name);
+  const auto thread_count = std::min(std::max<size_t>(1, loader_threads), num_pages);
+  const auto pages_per_thread = (num_pages + thread_count - 1) / thread_count;
 
-    auto page_id = buffer_manager.find_page(page);
-    buffer_manager.pin_exclusive(page_id);
+  auto load_pages = [&](size_t start_page, size_t end_page, size_t thread_idx) {
+    TPCCRandomGenerator rng{TPCC_TABLE_LOAD_SEED + static_cast<uint32_t>(thread_idx)};
 
-    // Initialize page to zero
-    std::memset(page, 0, PAGE_SIZE);
+    for (size_t page_idx = start_page; page_idx < end_page; ++page_idx) {
+      auto* page = reinterpret_cast<std::byte*>(
+          memory_resource->allocate(PAGE_SIZE, CACHE_LINE_SIZE));
+      Assert(page != nullptr, "Allocation failed for table: " + name);
 
-    // Populate rows in this page with real TPC-C data
-    size_t rows_in_page = std::min(table.rows_per_page,
-                                    total_rows - page_idx * table.rows_per_page);
-    for (size_t row_idx = 0; row_idx < rows_in_page; ++row_idx) {
-      size_t global_row = page_idx * table.rows_per_page + row_idx;
-      populate_row(page + row_idx * row_size, global_row, rng);
+      auto page_id = buffer_manager.find_page(page);
+      buffer_manager.pin_exclusive(page_id);
+
+      // Initialize page to zero
+      std::memset(page, 0, PAGE_SIZE);
+
+      // Populate rows in this page with real TPC-C data
+      const size_t rows_in_page =
+          std::min(table.rows_per_page, total_rows - page_idx * table.rows_per_page);
+      for (size_t row_idx = 0; row_idx < rows_in_page; ++row_idx) {
+        const size_t global_row = page_idx * table.rows_per_page + row_idx;
+        populate_row(page + row_idx * row_size, global_row, rng);
+      }
+
+      buffer_manager.set_dirty(page_id);
+      buffer_manager.unpin_exclusive(page_id);
+      table.pages[page_idx] = page;
+    }
+  };
+
+  if (thread_count == 1) {
+    load_pages(0, num_pages, 0);
+  } else {
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+    for (size_t thread_idx = 0; thread_idx < thread_count; ++thread_idx) {
+      const size_t start_page = thread_idx * pages_per_thread;
+      const size_t end_page = std::min(start_page + pages_per_thread, num_pages);
+      if (start_page >= end_page) {
+        break;
+      }
+      threads.emplace_back(load_pages, start_page, end_page, thread_idx);
     }
 
-    buffer_manager.set_dirty(page_id);
-    buffer_manager.unpin_exclusive(page_id);
-    table.pages.push_back(page);
+    for (auto& thread : threads) {
+      thread.join();
+    }
   }
 
   return table;
@@ -1025,11 +1056,12 @@ inline TPCCDatabasePages generate_tpcc_database(boost::container::pmr::memory_re
       static_cast<size_t>(NUM_ITEMS),
       [&pre_data](std::byte* ptr, size_t row_idx, TPCCRandomGenerator& rng) {
         populate_item_row(ptr, row_idx, rng, pre_data.original_item_ids);
-      });
+      },
+      thread_count);
 
   std::cout << "  Allocating WAREHOUSE..." << std::endl;
   db.warehouse = generate_tpcc_table_generic(memory_resource, buffer_manager, "WAREHOUSE", sizeof(WarehouseRow),
-                                             num_warehouses, populate_warehouse_row);
+                                             num_warehouses, populate_warehouse_row, thread_count);
 
   std::cout << "  Allocating DISTRICT..." << std::endl;
   db.district = generate_tpcc_table_generic(
@@ -1037,7 +1069,8 @@ inline TPCCDatabasePages generate_tpcc_database(boost::container::pmr::memory_re
       num_warehouses * static_cast<size_t>(NUM_DISTRICTS_PER_WAREHOUSE),
       [num_warehouses](std::byte* ptr, size_t row_idx, TPCCRandomGenerator& rng) {
         populate_district_row(ptr, row_idx, rng, num_warehouses);
-      });
+      },
+      thread_count);
 
   std::cout << "  Allocating CUSTOMER (with pre-selected bad credit IDs)..." << std::endl;
   db.customer = generate_tpcc_table_generic(
@@ -1046,7 +1079,8 @@ inline TPCCDatabasePages generate_tpcc_database(boost::container::pmr::memory_re
           static_cast<size_t>(NUM_CUSTOMERS_PER_DISTRICT),
       [num_warehouses, &pre_data](std::byte* ptr, size_t row_idx, TPCCRandomGenerator& rng) {
         populate_customer_row(ptr, row_idx, rng, num_warehouses, pre_data.bad_credit_customer_ids);
-      });
+      },
+      thread_count);
 
   // Build customer name index for 40% name-based lookups
   std::cout << "  Building customer name index..." << std::endl;
@@ -1077,7 +1111,8 @@ inline TPCCDatabasePages generate_tpcc_database(boost::container::pmr::memory_re
           static_cast<size_t>(NUM_CUSTOMERS_PER_DISTRICT),
       [num_warehouses](std::byte* ptr, size_t row_idx, TPCCRandomGenerator& rng) {
         populate_history_row(ptr, row_idx, rng, num_warehouses);
-      });
+      },
+      thread_count);
 
   TPCCRandomGenerator permutation_rng;
   const auto customer_permutation = permutation_rng.permutation(0, NUM_CUSTOMERS_PER_DISTRICT);
@@ -1089,7 +1124,8 @@ inline TPCCDatabasePages generate_tpcc_database(boost::container::pmr::memory_re
           static_cast<size_t>(NUM_ORDERS_PER_DISTRICT),
       [num_warehouses, &customer_permutation, &pre_data](std::byte* ptr, size_t row_idx, TPCCRandomGenerator& rng) {
         populate_order_row(ptr, row_idx, rng, num_warehouses, customer_permutation, pre_data.order_line_counts);
-      });
+      },
+      thread_count);
 
   std::cout << "  Allocating NEW_ORDER..." << std::endl;
   db.new_order = generate_tpcc_table_generic(
@@ -1098,7 +1134,8 @@ inline TPCCDatabasePages generate_tpcc_database(boost::container::pmr::memory_re
           static_cast<size_t>(NUM_NEW_ORDERS_PER_DISTRICT),
       [num_warehouses](std::byte* ptr, size_t row_idx, TPCCRandomGenerator& rng) {
         populate_new_order_row(ptr, row_idx, rng, num_warehouses);
-      });
+      },
+      thread_count);
 
   // Allocate ORDER_LINE with maximum slots (15) per order
   // Only populate actual count per order (from pre_data.order_line_counts)
@@ -1133,7 +1170,8 @@ inline TPCCDatabasePages generate_tpcc_database(boost::container::pmr::memory_re
                                    ol_number);
         }
         // Slots beyond actual count remain zeroed (from page initialization)
-      });
+      },
+      thread_count);
 
   std::cout << "  Allocating STOCK (with pre-selected ORIGINAL items)..." << std::endl;
   db.stock = generate_tpcc_table_generic(
@@ -1141,7 +1179,8 @@ inline TPCCDatabasePages generate_tpcc_database(boost::container::pmr::memory_re
       num_warehouses * static_cast<size_t>(NUM_STOCK_ITEMS_PER_WAREHOUSE),
       [num_warehouses, &pre_data](std::byte* ptr, size_t row_idx, TPCCRandomGenerator& rng) {
         populate_stock_row(ptr, row_idx, rng, num_warehouses, pre_data.original_item_ids);
-      });
+      },
+      thread_count);
 
   const auto total_pages = db.warehouse.pages.size() + db.district.pages.size() + db.customer.pages.size() +
                            db.history.pages.size() + db.new_order.pages.size() + db.orders.pages.size() +
@@ -1258,9 +1297,6 @@ inline uint64_t execute_new_order(const TPCCDatabasePages& db, BufferManager& bu
   bytes += read_row(db.district, buffer_manager, d_idx, &d_row);
   const auto o_id = d_row.d_next_o_id;
 
-  // 3. UPDATE DISTRICT SET D_NEXT_O_ID = D_NEXT_O_ID + 1 (HOTSPOT!)
-  bytes += update_field(db.district, buffer_manager, d_idx, &DistrictRow::d_next_o_id, o_id + 1);
-
   // 4. SELECT C_DISCOUNT, C_LAST, C_CREDIT FROM CUSTOMER
   const auto c_idx =
       static_cast<size_t>((w_id - 1) * NUM_DISTRICTS_PER_WAREHOUSE * NUM_CUSTOMERS_PER_DISTRICT +
@@ -1268,33 +1304,42 @@ inline uint64_t execute_new_order(const TPCCDatabasePages& db, BufferManager& bu
   CustomerRow c_row;
   bytes += read_row(db.customer, buffer_manager, c_idx, &c_row);
 
-  // Process each order line item
-  // For 1% rollback simulation: if has_invalid_item is true, we process items until
-  // we hit the "invalid" one (last item), then simulate rollback by NOT writing
-  // NEW_ORDER and ORDER records
+  // For 1% rollback simulation: if has_invalid_item is true, simulate item lookups and stock reads only
+  // (no writes). This matches TPC-C behavior where the transaction aborts and no updates persist.
   const auto order_lines_per_district =
       static_cast<size_t>(NUM_ORDERS_PER_DISTRICT) * TPCC_MAX_ORDER_LINES_PER_ORDER;
   const auto order_lines_per_warehouse =
       static_cast<size_t>(NUM_DISTRICTS_PER_WAREHOUSE) * order_lines_per_district;
 
-  bool should_rollback = false;
+  if (has_invalid_item) {
+    for (size_t ol_num = 0; ol_num < items.size(); ++ol_num) {
+      const auto& item = items[ol_num];
 
+      // Last item is invalid: do the lookup and abort
+      if (ol_num == items.size() - 1) {
+        ItemRow i_row;
+        bytes += read_row(db.item, buffer_manager, 0, &i_row);  // Placeholder for invalid item lookup
+        break;
+      }
+
+      ItemRow i_row;
+      bytes += read_row(db.item, buffer_manager, static_cast<size_t>(item.i_id - 1), &i_row);
+
+      const auto s_idx = static_cast<size_t>((item.supply_w_id - 1) * NUM_STOCK_ITEMS_PER_WAREHOUSE + (item.i_id - 1));
+      StockRow s_row;
+      bytes += read_row(db.stock, buffer_manager, s_idx, &s_row);
+    }
+
+    return bytes;
+  }
+
+  // 3. UPDATE DISTRICT SET D_NEXT_O_ID = D_NEXT_O_ID + 1 (HOTSPOT!)
+  bytes += update_field(db.district, buffer_manager, d_idx, &DistrictRow::d_next_o_id, o_id + 1);
+
+  // Process each order line item
   for (size_t ol_num = 0; ol_num < items.size(); ++ol_num) {
     const auto& item = items[ol_num];
 
-    // 1% rollback: invalid item ID check (last item in the order)
-    if (has_invalid_item && ol_num == items.size() - 1) {
-      // Simulate checking for invalid item - this would be the lookup that fails
-      // In real TPC-C, item_id would be invalid (e.g., -1 or > NUM_ITEMS)
-      // We still do the read to simulate the access pattern, but mark for rollback
-      should_rollback = true;
-      // Still perform the item lookup to match access pattern
-      ItemRow i_row;
-      bytes += read_row(db.item, buffer_manager, 0, &i_row);  // Read item 0 as placeholder
-      break;  // Stop processing items - transaction will roll back
-    }
-
-    // Normal item processing
     ItemRow i_row;
     bytes += read_row(db.item, buffer_manager, static_cast<size_t>(item.i_id - 1), &i_row);
 
@@ -1323,13 +1368,6 @@ inline uint64_t execute_new_order(const TPCCDatabasePages& db, BufferManager& bu
     // Copy S_DIST_XX to OL_DIST_INFO
     std::memcpy(ol_row.ol_dist_info, s_row.s_dist[d_id - 1], sizeof(ol_row.ol_dist_info));
     bytes += write_row(db.order_line, buffer_manager, ol_idx % db.order_line.total_rows, ol_row);
-  }
-
-  // If rollback occurred (1% of transactions), don't insert NEW_ORDER and ORDER
-  if (should_rollback) {
-    // Transaction rolled back - no new order created
-    // The reads/writes above are still counted (they happened before rollback)
-    return bytes;
   }
 
   // 5. INSERT NEW_ORDER
@@ -1477,34 +1515,33 @@ inline uint64_t execute_order_status(const TPCCDatabasePages& db, BufferManager&
   bytes += read_row(db.customer, buffer_manager, c_idx, &c_row);
 
   // 2. Find the last order for this customer (ORDER BY O_ID DESC LIMIT 1)
-  // Scan recent orders to find one matching c_id
+  // Scan all orders in the district to find the max O_ID for this customer
   const auto orders_per_warehouse = static_cast<size_t>(NUM_DISTRICTS_PER_WAREHOUSE) * NUM_ORDERS_PER_DISTRICT;
   const auto o_base =
       static_cast<size_t>((w_id - 1) * orders_per_warehouse + (d_id - 1) * NUM_ORDERS_PER_DISTRICT);
 
   OrderRow found_order{};
-  size_t found_o_idx = 0;
+  int32_t found_o_id = -1;
   bool found = false;
 
-  // Scan backwards from most recent orders to find customer's last order
-  for (int i = 0; i < NUM_ORDERS_PER_DISTRICT && !found; ++i) {
-    const auto o_idx = o_base + (NUM_ORDERS_PER_DISTRICT - 1 - i);
+  for (int i = 0; i < NUM_ORDERS_PER_DISTRICT; ++i) {
+    const auto o_idx = o_base + i;
     OrderRow o_row;
     bytes += read_row(db.orders, buffer_manager, o_idx % db.orders.total_rows, &o_row);
     if (o_row.o_c_id == c_row.c_id) {
-      found_order = o_row;
-      found_o_idx = o_idx;
-      found = true;
+      if (!found || o_row.o_id > found_o_id) {
+        found_order = o_row;
+        found_o_id = o_row.o_id;
+        found = true;
+      }
     }
-    // Limit scan to reasonable number for benchmark (like original does ~5 reads)
-    if (i >= 20) break;
   }
 
   // 3. Read ORDER_LINEs for the found order (variable 5-15 lines based on o_ol_cnt)
   if (found) {
     const auto order_lines_per_district =
         static_cast<size_t>(NUM_ORDERS_PER_DISTRICT) * TPCC_MAX_ORDER_LINES_PER_ORDER;
-    const auto order_index = found_o_idx % NUM_ORDERS_PER_DISTRICT;
+    const auto order_index = static_cast<size_t>((found_order.o_id - 1) % NUM_ORDERS_PER_DISTRICT);
     const auto ol_base =
         static_cast<size_t>((w_id - 1) * NUM_DISTRICTS_PER_WAREHOUSE * order_lines_per_district +
                             (d_id - 1) * order_lines_per_district +
@@ -1536,19 +1573,33 @@ inline uint64_t execute_delivery(const TPCCDatabasePages& db, BufferManager& buf
 
   // Process all 10 districts
   for (int32_t d_id = 1; d_id <= NUM_DISTRICTS_PER_WAREHOUSE; ++d_id) {
-    // 1. Find oldest NEW_ORDER (SELECT MIN(NO_O_ID))
-    const auto no_idx = static_cast<size_t>((w_id - 1) * new_orders_per_warehouse +
-                                            (d_id - 1) * NUM_NEW_ORDERS_PER_DISTRICT);
-    NewOrderRow no_row;
-    bytes += read_row(db.new_order, buffer_manager, no_idx, &no_row);
+    // 1. Find oldest NEW_ORDER (SELECT MIN(NO_O_ID)) by scanning the district's range
+    const auto district_base = static_cast<size_t>((w_id - 1) * new_orders_per_warehouse +
+                                                   (d_id - 1) * NUM_NEW_ORDERS_PER_DISTRICT);
+    int32_t min_no_o_id = std::numeric_limits<int32_t>::max();
+    size_t min_no_idx = 0;
+    bool found_no = false;
 
-    // Skip if no new orders
-    if (no_row.no_o_id <= 0) {
+    for (size_t i = 0; i < static_cast<size_t>(NUM_NEW_ORDERS_PER_DISTRICT); ++i) {
+      const auto no_idx = district_base + i;
+      NewOrderRow no_row;
+      bytes += read_row(db.new_order, buffer_manager, no_idx, &no_row);
+      if (no_row.no_o_id > 0 && no_row.no_o_id < min_no_o_id) {
+        min_no_o_id = no_row.no_o_id;
+        min_no_idx = no_idx;
+        found_no = true;
+      }
+    }
+
+    if (!found_no) {
       continue;
     }
 
+    NewOrderRow no_row;
+    bytes += read_row(db.new_order, buffer_manager, min_no_idx, &no_row);
+
     // 2. DELETE NEW_ORDER
-    bytes += write_row(db.new_order, buffer_manager, no_idx, NewOrderRow{0, 0, 0});
+    bytes += write_row(db.new_order, buffer_manager, min_no_idx, NewOrderRow{0, 0, 0});
 
     // 3. Read ORDER to get O_C_ID and O_OL_CNT
     const auto o_idx = static_cast<size_t>((w_id - 1) * orders_per_warehouse +
@@ -1692,15 +1743,15 @@ inline TPCCTransactions generate_tpcc_transactions(size_t num_transactions, size
         } while (p.c_w_id == p.w_id);
         p.c_d_id = district_dist(rng);
       }
-      // 40% of Payment transactions use name-based lookup
-      if (lookup_type_dist(rng) <= 40) {
+      // 60% of Payment transactions use name-based lookup
+      if (lookup_type_dist(rng) <= 60) {
         p.lookup_by_name = true;
         // Generate a last name using NURand for realistic distribution
         p.c_last = tpcc_rng.last_name(static_cast<size_t>(tpcc_rng.nurand(255, 0, 999)));
       }
     } else if (p.type == TPCCTransactionType::OrderStatus) {
-      // 40% of OrderStatus transactions use name-based lookup
-      if (lookup_type_dist(rng) <= 40) {
+      // 60% of OrderStatus transactions use name-based lookup
+      if (lookup_type_dist(rng) <= 60) {
         p.lookup_by_name = true;
         p.c_last = tpcc_rng.last_name(static_cast<size_t>(tpcc_rng.nurand(255, 0, 999)));
       }
