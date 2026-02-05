@@ -7,7 +7,7 @@ include_directories(
 # That breaks with unity builds, so we turn them off here.
 set(CMAKE_UNITY_BUILD "OFF")
 
-option(HYRISE_WITH_TPCC "Build TPCC sources into hyriseBenchmarkLib" OFF)
+option(HYRISE_WITH_TPCC "Build TPCC sources into hyriseBenchmarkLib" ON)
 option(HYRISE_WITH_TPCH "Build TPCH sources into hyriseBenchmarkLib" OFF)
 
 set(
