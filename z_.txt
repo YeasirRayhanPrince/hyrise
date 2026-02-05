@@ -72,3 +72,9 @@ export HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manag
 /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/2/iterations:1/repeats:1/real_time/threads:11"
 
 numactl --cpunodebind=0 env HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_ycsb/ReadMostly/CustomMigrationPolicy/2/iterations:1/repeats:1/real_time/threads:11"
+
+
+
+
+
+numactl --cpunodebind=0 env HYRISE_BUFFER_MANAGER_CONFIG_JSON_PATH=/users/yrayhan/hyrise/buffer_manager_config.json /users/yrayhan/hyrise/cmake-build-release/hyriseBenchmarkBufferManager --benchmark_filter="BM_tpcc/CustomMigrationPolicy/1/iterations:1/repeats:1/real_time/threads:13"
